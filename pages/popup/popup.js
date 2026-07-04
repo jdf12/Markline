@@ -921,22 +921,30 @@ let _lastCardRect = null;
 function calcPreviewPosition(itemEl) {
   const rect = itemEl.getBoundingClientRect();
   const margin = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
   const cardW = _lastCardRect ? _lastCardRect.width : 280;
   const cardH = _lastCardRect ? _lastCardRect.height : 100;
 
   const itemCenterX = rect.left + rect.width / 2;
   let left = Math.round(itemCenterX - cardW / 2);
+  if (left < 4) left = 4;
+  if (left + cardW > vw - 4) left = Math.max(4, vw - cardW - 4);
+
   let top = Math.round(rect.top - cardH - margin);
-
-  const minLeft = 4;
-  const maxLeft = window.innerWidth - cardW - 4;
-  if (left < minLeft) left = minLeft;
-  if (left > maxLeft) left = maxLeft;
-
   if (top < 4) top = Math.round(rect.bottom + margin);
-  if (top + cardH > window.innerHeight - 4) top = Math.max(4, window.innerHeight - cardH - 4);
+  if (top + cardH > vh - 4) top = Math.max(4, vh - cardH - 4);
 
   return { left, top };
+}
+
+function repositionPreviewCard(itemEl) {
+  if (!previewCardEl || previewCardEl.style.visibility !== 'visible') return;
+  const actualW = previewCardEl.offsetWidth;
+  const actualH = previewCardEl.offsetHeight;
+  _lastCardRect = { width: actualW, height: actualH };
+  const pos = calcPreviewPosition(itemEl);
+  applyPreviewPosition(pos);
 }
 
 function applyPreviewPosition(pos) {
@@ -961,20 +969,17 @@ function scheduleHidePreview() {
 
 function showPreviewCardEl(itemEl) {
   const el = getPreviewCardEl();
-  // 1. 计算位置（纯读）
   const pos = calcPreviewPosition(itemEl);
-  // 2. 先把卡片放到目标位置（不可见状态），避免入场时位置跳动
   el.style.transition = 'none';
   el.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0) scale(0.96)`;
   el.style.visibility = 'visible';
   el.style.opacity = '0';
   el.setAttribute('aria-hidden', 'false');
-  // 3. 在下一帧开启过渡 + 最终状态，触发丝滑入场
   requestAnimationFrame(() => {
     el.style.transition = '';
     el.style.opacity = '1';
     el.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0) scale(1)`;
-    _lastCardRect = { width: el.offsetWidth, height: el.offsetHeight };
+    repositionPreviewCard(itemEl);
   });
 }
 
@@ -1077,11 +1082,7 @@ function showPreviewContent(data) {
         checkImgSize();
         if (previewHoverItem) {
           requestAnimationFrame(() => {
-            if (previewHoverItem) {
-              const pos = calcPreviewPosition(previewHoverItem);
-              applyPreviewPosition(pos);
-              _lastCardRect = { width: previewCardEl.offsetWidth, height: previewCardEl.offsetHeight };
-            }
+            if (previewHoverItem) repositionPreviewCard(previewHoverItem);
           });
         }
       }, { once: true });
@@ -1431,13 +1432,7 @@ function drawPreviewFromCache(entry, itemEl) {
     showPreviewMessage(i18n('previewError') || 'Failed to load');
   }
   requestAnimationFrame(() => {
-    if (previewHoverItem) {
-      const pos = calcPreviewPosition(previewHoverItem);
-      applyPreviewPosition(pos);
-      if (previewCardEl) {
-        _lastCardRect = { width: previewCardEl.offsetWidth, height: previewCardEl.offsetHeight };
-      }
-    }
+    if (previewHoverItem) repositionPreviewCard(previewHoverItem);
   });
 }
 

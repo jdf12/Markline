@@ -335,7 +335,7 @@ async function refreshBookmarkData({ keepFilter = true } = {}) {
   duplicateIds = computeDuplicates(allBookmarks);
   await collectAllTags();
   renderTagFilter();
-  if (keepFilter) filterBookmarks(saSearchInput.value);
+  filterBookmarks(saSearchInput.value);
 }
 
 async function syncAll() {
@@ -1612,23 +1612,34 @@ let _lastCardRect = null;
 function calcPreviewPosition(itemEl) {
   const rect = itemEl.getBoundingClientRect();
   const margin = 8;
-  // 优先用缓存的尺寸，避免读取 offsetWidth/offsetHeight 触发强制布局
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // 用缓存尺寸，首次用保守估计
   const cardW = _lastCardRect ? _lastCardRect.width : 380;
   const cardH = _lastCardRect ? _lastCardRect.height : 140;
 
+  // 水平定位：优先居中于书签，但不超出视口
   const itemCenterX = rect.left + rect.width / 2;
   let left = Math.round(itemCenterX - cardW / 2);
+  if (left < 4) left = 4;
+  if (left + cardW > vw - 4) left = Math.max(4, vw - cardW - 4);
+
+  // 垂直定位：优先在书签上方，不够则放下方，再不够则吸底
   let top = Math.round(rect.top - cardH - margin);
-
-  const minLeft = 4;
-  const maxLeft = window.innerWidth - cardW - 4;
-  if (left < minLeft) left = minLeft;
-  if (left > maxLeft) left = maxLeft;
-
   if (top < 4) top = Math.round(rect.bottom + margin);
-  if (top + cardH > window.innerHeight - 4) top = Math.max(4, window.innerHeight - cardH - 4);
+  if (top + cardH > vh - 4) top = Math.max(4, vh - cardH - 4);
 
   return { left, top };
+}
+
+/** 用实际尺寸修正位置（读取 offsetWidth/offsetHeight 后调用） */
+function repositionPreviewCard(itemEl) {
+  if (!previewCardEl || previewCardEl.style.visibility !== 'visible') return;
+  const actualW = previewCardEl.offsetWidth;
+  const actualH = previewCardEl.offsetHeight;
+  _lastCardRect = { width: actualW, height: actualH };
+  const pos = calcPreviewPosition(itemEl);
+  applyPreviewPosition(pos);
 }
 
 function applyPreviewPosition(pos) {
@@ -1655,22 +1666,19 @@ function scheduleHidePreview() {
 
 function showPreviewCardEl(itemEl) {
   const el = getPreviewCardEl();
-  // 1. 计算位置（纯读）
   const pos = calcPreviewPosition(itemEl);
-  // 2. 先把卡片放到目标位置（不可见状态），避免入场时位置跳动
   el.style.transition = 'none';
   el.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0) scale(0.96)`;
   el.style.setProperty('--sa-preview-pos', `translate3d(${pos.left}px, ${pos.top}px, 0)`);
   el.style.visibility = 'visible';
   el.style.opacity = '0';
   el.setAttribute('aria-hidden', 'false');
-  // 3. 在下一帧开启过渡 + 最终状态，触发丝滑入场
   requestAnimationFrame(() => {
     el.style.transition = '';
     el.style.opacity = '1';
     el.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0) scale(1)`;
-    // 缓存当前尺寸供下次位置计算用
-    _lastCardRect = { width: el.offsetWidth, height: el.offsetHeight };
+    // 用实际尺寸修正位置
+    repositionPreviewCard(itemEl);
   });
 }
 
@@ -1775,14 +1783,10 @@ function showPreviewContent(data) {
     } else {
       previewImgEl.addEventListener('load', () => {
         checkImgSize();
-        // 图片加载后重新定位（尺寸可能变化）
+        // 图片加载后重新定位
         if (previewHoverItem) {
           requestAnimationFrame(() => {
-            if (previewHoverItem) {
-              const pos = calcPreviewPosition(previewHoverItem);
-              applyPreviewPosition(pos);
-              _lastCardRect = { width: previewCardEl.offsetWidth, height: previewCardEl.offsetHeight };
-            }
+            if (previewHoverItem) repositionPreviewCard(previewHoverItem);
           });
         }
       }, { once: true });
@@ -2116,15 +2120,9 @@ function drawPreviewFromCache(entry, itemEl) {
   } else {
     showPreviewMessage(i18n('previewError') || 'Failed to load');
   }
-  // 内容变化后重新定位（单帧延迟避免读写混合）
+  // 内容变化后用实际尺寸重新定位
   requestAnimationFrame(() => {
-    if (previewHoverItem) {
-      const pos = calcPreviewPosition(previewHoverItem);
-      applyPreviewPosition(pos);
-      if (previewCardEl) {
-        _lastCardRect = { width: previewCardEl.offsetWidth, height: previewCardEl.offsetHeight };
-      }
-    }
+    if (previewHoverItem) repositionPreviewCard(previewHoverItem);
   });
 }
 
