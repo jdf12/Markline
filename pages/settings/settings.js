@@ -27,6 +27,7 @@ const previewCacheTTLSelect = document.getElementById('previewCacheTTLSelect');
 const previewMaxEntriesSelect = document.getElementById('previewMaxEntriesSelect');
 const previewCacheStatsDesc = document.getElementById('previewCacheStatsDesc');
 const clearPreviewCacheBtn = document.getElementById('clearPreviewCacheBtn');
+const mdiWindowEnabledToggle = document.getElementById('mdiWindowEnabledToggle');
 const toastContainer = document.getElementById('toastContainer');
 const shortcutQuickBookmark = document.getElementById('shortcutQuickBookmark');
 const shortcutOpenPalette = document.getElementById('shortcutOpenPalette');
@@ -277,10 +278,12 @@ async function loadPreviewSettings() {
     previewEnabledToggle.checked = s.previewEnabled !== false;
     previewCacheTTLSelect.value = String(s.previewCacheTTL ?? 30);
     previewMaxEntriesSelect.value = String(s.previewMaxCacheEntries ?? 500);
+    mdiWindowEnabledToggle.checked = s.mdiWindowEnabled === true;
   } catch (e) {
     previewEnabledToggle.checked = true;
     previewCacheTTLSelect.value = '30';
     previewMaxEntriesSelect.value = '500';
+    mdiWindowEnabledToggle.checked = false;
   }
   await refreshPreviewCacheStats();
 }
@@ -851,6 +854,11 @@ clearPreviewCacheBtn.addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ action: 'clearPreviewCache' });
   await refreshPreviewCacheStats();
   showToast(i18n('previewCacheCleared') || 'Cleared', 'success');
+});
+
+mdiWindowEnabledToggle.addEventListener('change', async (e) => {
+  await savePreviewSetting({ mdiWindowEnabled: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
 });
 
 // ===== AI 辅助分类事件绑定 =====

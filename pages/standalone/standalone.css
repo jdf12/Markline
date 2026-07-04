@@ -258,6 +258,18 @@ body.standalone-mode {
   to { transform: rotate(360deg); }
 }
 
+/* --- Theme Toggle Button --- */
+#saThemeBtn .theme-icon-dark { display: none; }
+#saThemeBtn .theme-icon-light { display: block; }
+
+body.theme-dark #saThemeBtn .theme-icon-dark { display: block; }
+body.theme-dark #saThemeBtn .theme-icon-light { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  body:not(.theme-light) #saThemeBtn .theme-icon-dark { display: block; }
+  body:not(.theme-light) #saThemeBtn .theme-icon-light { display: none; }
+}
+
 /* ===== View Switch ===== */
 .sa-view-switch {
   display: flex;
@@ -366,6 +378,13 @@ body.standalone-mode {
 
 /* ===== Body Layout ===== */
 .sa-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.sa-body-main {
   display: flex;
   flex: 1;
   min-height: 0;

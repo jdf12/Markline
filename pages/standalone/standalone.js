@@ -70,6 +70,10 @@ let bulkMode = false;
 let selectedIds = new Set();
 let dragState = null;
 
+// MDI 多窗口
+let mdiManager = null;
+let mdiWindowEnabled = false;
+
 // 分页
 const PAGE_SIZE = 80;
 let renderQueue = [];
@@ -99,6 +103,7 @@ const SVG_MORE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentC
 const SVG_FOLDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
 const SVG_FOLDER_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v1"/><path d="M5 19h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2z"/></svg>';
 const SVG_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+const SVG_WINDOW = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
 
 const DEFAULT_FAVICON = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%239aa0a6%22><path d=%22M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z%22/></svg>';
 
@@ -1035,6 +1040,7 @@ function openBookmarkMenu(btn, id, url, title) {
 
   el.innerHTML = `
     <button class="sa-bookmark-menu-item" data-action="open">${SVG_OPEN}<span>${escapeHtml(i18n('openLink'))}</span></button>
+    <button class="sa-bookmark-menu-item" data-action="openInWindow">${SVG_WINDOW}<span>${escapeHtml(i18n('openInWindow'))}</span></button>
     <button class="sa-bookmark-menu-item" data-action="pin">${isPinned ? SVG_PIN_FILL : SVG_PIN}<span>${escapeHtml(pinText)}</span></button>
     <button class="sa-bookmark-menu-item" data-action="edit">${SVG_EDIT}<span>${escapeHtml(i18n('edit'))}</span></button>
     <div class="sa-bookmark-menu-sep"></div>
@@ -1080,6 +1086,11 @@ document.addEventListener('click', (e) => {
       if (action === 'open') {
         chrome.tabs.create({ url });
         chrome.runtime.sendMessage({ action: 'recordClick', url }).catch(() => {});
+      } else if (action === 'openInWindow') {
+        if (!openBookmarkInWindow(url, title)) {
+          chrome.tabs.create({ url });
+          chrome.runtime.sendMessage({ action: 'recordClick', url }).catch(() => {});
+        }
       } else if (action === 'edit') {
         const bookmark = allBookmarks.find(b => b.id === id);
         openEditModal(id, title, url, bookmark?.tags || [], bookmark);
@@ -1115,8 +1126,30 @@ saContent.addEventListener('click', (e) => {
   }
 
   closeBookmarkMenu();
+
+  // Ctrl/Cmd+Click: 在新标签页打开
+  if (e.ctrlKey || e.metaKey) {
+    chrome.tabs.create({ url });
+    chrome.runtime.sendMessage({ action: 'recordClick', url }).catch(() => {});
+    return;
+  }
+
+  // 尝试在 MDI 子窗口中打开
+  if (openBookmarkInWindow(url, title)) return;
+
+  // MDI 未启用，在新标签页打开
   chrome.tabs.create({ url });
   chrome.runtime.sendMessage({ action: 'recordClick', url }).catch(() => {});
+});
+
+// 中键点击：始终在新标签页打开
+saContent.addEventListener('auxclick', (e) => {
+  if (e.button !== 1) return;
+  const itemEl = e.target.closest('[data-id]');
+  if (!itemEl) return;
+  e.preventDefault();
+  chrome.tabs.create({ url: itemEl.dataset.url });
+  chrome.runtime.sendMessage({ action: 'recordClick', url: itemEl.dataset.url }).catch(() => {});
 });
 
 // Favicon 错误处理
@@ -1413,7 +1446,12 @@ saPaletteInput.addEventListener('keydown', (e) => {
   } else if (e.key === 'Enter') {
     e.preventDefault();
     if (paletteItems[paletteSelectedIdx]) {
-      chrome.tabs.create({ url: paletteItems[paletteSelectedIdx].url });
+      const item = paletteItems[paletteSelectedIdx];
+      if (e.ctrlKey || e.metaKey) {
+        chrome.tabs.create({ url: item.url });
+      } else {
+        openBookmarkInWindow(item.url, item.title);
+      }
       closePalette();
     }
   } else if (e.key === 'Escape') {
@@ -1426,7 +1464,8 @@ saPaletteResults.addEventListener('click', (e) => {
   if (!item) return;
   const idx = parseInt(item.dataset.index, 10);
   if (paletteItems[idx]) {
-    chrome.tabs.create({ url: paletteItems[idx].url });
+    const entry = paletteItems[idx];
+    openBookmarkInWindow(entry.url, entry.title);
     closePalette();
   }
 });
@@ -1477,18 +1516,36 @@ function getFolderNameById(id) {
 }
 
 // ===== 主题 =====
+let currentTheme = 'system';
+
 function loadTheme() {
-  chrome.storage.local.get('appSettings', (data) => {
-    const settings = data.appSettings || {};
-    const theme = settings.theme || 'system';
+  chrome.storage.local.get('theme', (data) => {
+    const theme = data.theme || 'system';
     applyTheme(theme);
   });
 }
 
 function applyTheme(theme) {
+  currentTheme = theme;
   document.body.classList.remove('theme-light', 'theme-dark');
   if (theme === 'light') document.body.classList.add('theme-light');
   else if (theme === 'dark') document.body.classList.add('theme-dark');
+  updateThemeButtonIcon();
+}
+
+function updateThemeButtonIcon() {
+  // CSS handles icon visibility based on theme class
+  // This function can be extended for animation if needed
+}
+
+function toggleTheme() {
+  // Cycle: system → light → dark → system
+  let next;
+  if (currentTheme === 'system') next = 'light';
+  else if (currentTheme === 'light') next = 'dark';
+  else next = 'system';
+  chrome.storage.local.set({ theme: next });
+  applyTheme(next);
 }
 
 // ===== 监听后台消息 =====
@@ -1498,16 +1555,18 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// 监听存储变化（主题/语言/预览）
+// 监听存储变化（主题/语言/预览/MDI）
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.appSettings) {
-    const settings = changes.appSettings.newValue || {};
-    if (settings.theme) applyTheme(settings.theme);
+  if (changes.theme) {
+    applyTheme(changes.theme.newValue || 'system');
   }
   if (changes.previewEnabled) {
     previewEnabled = changes.previewEnabled.newValue !== false;
     if (!previewEnabled) hidePreviewCard();
+  }
+  if (changes.mdiWindowEnabled) {
+    mdiWindowEnabled = changes.mdiWindowEnabled.newValue === true;
   }
 });
 
@@ -2191,6 +2250,26 @@ async function loadPreviewEnabled() {
   }
 }
 
+async function loadMdiWindowEnabled() {
+  try {
+    const result = await chrome.storage.local.get('mdiWindowEnabled');
+    mdiWindowEnabled = result.mdiWindowEnabled === true;
+  } catch (e) {
+    mdiWindowEnabled = false;
+  }
+}
+
+// ===== MDI 多窗口辅助 =====
+
+function openBookmarkInWindow(url, title) {
+  if (!mdiManager || !mdiWindowEnabled) return false;
+  let faviconUrl = '';
+  try { faviconUrl = new URL(url).origin + '/favicon.ico'; } catch {}
+  mdiManager.openWindow(url, title || url, faviconUrl);
+  chrome.runtime.sendMessage({ action: 'recordClick', url }).catch(() => {});
+  return true;
+}
+
 // ===== 初始化 =====
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof initI18n === 'function') {
@@ -2205,8 +2284,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function startApp() {
   loadTheme();
-  loadPreviewEnabled();
+  await loadPreviewEnabled();
+  await loadMdiWindowEnabled();
   initSidebarResize();
+
+  // MDI 多窗口管理器初始化
+  const mdiDesktopArea = document.getElementById('saMdiDesktopArea');
+  const mdiTaskbar = document.getElementById('saMdiTaskbar');
+  if (mdiDesktopArea && mdiTaskbar && typeof MDIWindowManager !== 'undefined') {
+    mdiManager = new MDIWindowManager(mdiDesktopArea, mdiTaskbar, { maxWindows: 8 });
+  }
+
+  // 主题切换按钮
+  const themeBtn = document.getElementById('saThemeBtn');
+  if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+
   saLoading.style.display = 'flex';
   saEmpty.style.display = 'none';
   saSearchEmpty.style.display = 'none';

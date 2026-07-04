@@ -427,7 +427,22 @@ const I18N_MESSAGES = {
     statsExport: "Export Report",
     statsExportDesc: "Download statistics as CSV or printable PDF",
     statsNoData: "No data to export",
-    statsPopupBlocked: "Popup blocked. Please allow popups to print the report."
+    statsPopupBlocked: "Popup blocked. Please allow popups to print the report.",
+    openInWindow: "Open in window",
+    mdiCannotEmbed: "This page cannot be embedded here",
+    mdiOpenNewTab: "Open in new tab",
+    mdiMaxWindows: "Maximum $1 windows open",
+    mdiMinimize: "Minimize",
+    mdiMaximize: "Maximize",
+    mdiRestore: "Restore",
+    mdiClose: "Close",
+    mdiTileCascade: "Cascade",
+    mdiTileHorizontal: "Tile horizontal",
+    mdiTileVertical: "Tile vertical",
+    mdiNoWindows: "No windows open",
+    mdiWindowEnabled: "Multi-Window Mode",
+    mdiWindowEnabledDesc: "Open bookmarks in embedded windows within the standalone window instead of new browser tabs",
+    toggleTheme: "Toggle theme"
   },
   zh_CN: {
     appName: "Markline - 书签时间轴",
@@ -880,7 +895,22 @@ const I18N_MESSAGES = {
     statsExport: "导出报告",
     statsExportDesc: "将统计数据导出为 CSV 或可打印的 PDF",
     statsNoData: "没有可导出的数据",
-    statsPopupBlocked: "弹窗被阻止。请允许弹窗以打印报告。"
+    statsPopupBlocked: "弹窗被阻止。请允许弹窗以打印报告。",
+    openInWindow: "在窗口中打开",
+    mdiCannotEmbed: "此页面无法在此嵌入显示",
+    mdiOpenNewTab: "在新标签页中打开",
+    mdiMaxWindows: "最多打开 $1 个窗口",
+    mdiMinimize: "最小化",
+    mdiMaximize: "最大化",
+    mdiRestore: "还原",
+    mdiClose: "关闭",
+    mdiTileCascade: "层叠",
+    mdiTileHorizontal: "水平平铺",
+    mdiTileVertical: "垂直平铺",
+    mdiNoWindows: "暂无打开的窗口",
+    mdiWindowEnabled: "多窗口模式",
+    mdiWindowEnabledDesc: "在独立窗口内以嵌入子窗口打开书签，而非新浏览器标签页",
+    toggleTheme: "切换主题"
   }
 };
 

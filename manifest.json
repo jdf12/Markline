@@ -13,7 +13,8 @@
     "tabs",
     "history",
     "notifications",
-    "scripting"
+    "scripting",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -59,5 +60,14 @@
   },
   "omnibox": {
     "keyword": "mk"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "frame_allow_rules",
+        "enabled": true,
+        "path": "rules/frame_allow.json"
+      }
+    ]
   }
 }

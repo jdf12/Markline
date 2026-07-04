@@ -12,7 +12,8 @@ const PREVIEW_FETCH_TIMEOUT = 8000;
 const PREVIEW_DEFAULTS = {
   previewEnabled: true,
   previewCacheTTL: 30,        // 天
-  previewMaxCacheEntries: 500
+  previewMaxCacheEntries: 500,
+  mdiWindowEnabled: false
 };
 
 // 简易 fetch with timeout，支持额外 fetch options（如 headers）

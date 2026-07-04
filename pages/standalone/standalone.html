@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Markline</title>
   <link rel="stylesheet" href="standalone.css">
+  <link rel="stylesheet" href="mdi-manager.css">
 </head>
 <body class="standalone-mode">
   <!-- 顶部工具栏 -->
@@ -97,12 +98,21 @@
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       </button>
+      <button id="saThemeBtn" class="sa-icon-btn" data-i18n-title="toggleTheme">
+        <svg class="theme-icon-light" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <svg class="theme-icon-dark" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
   <!-- 主体区域 -->
   <div class="sa-body">
-    <!-- 侧边栏 -->
+    <div class="sa-body-main">
+    <!-- 侧栏 -->
     <aside class="sa-sidebar" id="saSidebar">
       <div class="sa-sidebar-section">
         <div class="sa-sidebar-section-header">
@@ -174,7 +184,16 @@
         <p class="sa-empty-title" data-i18n="searchEmptyTitle">没有找到匹配的书签</p>
         <p class="sa-empty-hint" data-i18n="searchEmptyHint">试试其他关键词</p>
       </div>
+
+      <!-- MDI 桌面区域 (覆盖在书签列表上方) -->
+      <div class="sa-mdi-desktop" id="saMdiDesktop">
+        <div class="sa-mdi-desktop-area" id="saMdiDesktopArea"></div>
+      </div>
     </main>
+    </div>
+
+    <!-- MDI 任务栏 (固定在 sa-body 底部) -->
+    <div class="sa-mdi-taskbar" id="saMdiTaskbar"></div>
   </div>
 
   <!-- 状态栏 -->
@@ -278,6 +297,7 @@
   <script src="../../shared/i18n.js"></script>
   <script src="../../shared/smart-tagger.js"></script>
   <script src="../../background/vendor/Readability.js"></script>
+  <script src="mdi-manager.js"></script>
   <script src="standalone.js"></script>
 </body>
 </html>
