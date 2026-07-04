@@ -279,6 +279,62 @@
     "message": "Open Standalone Window",
     "description": "Open panel menu item"
   },
+  "toggleSidebar": {
+    "message": "Toggle Sidebar",
+    "description": "Sidebar toggle button"
+  },
+  "folderTree": {
+    "message": "Folders",
+    "description": "Folder tree section title"
+  },
+  "tagFilter": {
+    "message": "Tag Filter",
+    "description": "Tag filter section title"
+  },
+  "viewTimeline": {
+    "message": "Timeline",
+    "description": "Timeline view mode"
+  },
+  "viewGrid": {
+    "message": "Grid",
+    "description": "Grid view mode"
+  },
+  "viewList": {
+    "message": "List",
+    "description": "List view mode"
+  },
+  "statusReady": {
+    "message": "Ready",
+    "description": "Status bar ready text"
+  },
+  "movedToFolder": {
+    "message": "Moved to folder",
+    "description": "Toast: bookmark moved to folder"
+  },
+  "dragHint": {
+    "message": "Drag bookmarks to sidebar folders",
+    "description": "Drag hint in status bar"
+  },
+  "allFolders": {
+    "message": "All Bookmarks",
+    "description": "All bookmarks folder node"
+  },
+  "collapseAll": {
+    "message": "Collapse All",
+    "description": "Collapse all folder tree nodes"
+  },
+  "expandAll": {
+    "message": "Expand All",
+    "description": "Expand all folder tree nodes"
+  },
+  "folderCount": {
+    "message": "$1 items",
+    "description": "Folder item count"
+  },
+  "currentFolder": {
+    "message": "Folder: $1",
+    "description": "Current folder display in status bar"
+  },
   "recentlyDeleted": {
     "message": "Recently Deleted",
     "description": "Recently deleted view title"

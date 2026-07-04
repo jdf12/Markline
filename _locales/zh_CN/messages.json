@@ -279,6 +279,62 @@
     "message": "打开独立窗口",
     "description": "打开面板菜单项"
   },
+  "toggleSidebar": {
+    "message": "切换侧栏",
+    "description": "侧栏切换按钮"
+  },
+  "folderTree": {
+    "message": "文件夹",
+    "description": "文件夹树区域标题"
+  },
+  "tagFilter": {
+    "message": "标签筛选",
+    "description": "标签筛选区域标题"
+  },
+  "viewTimeline": {
+    "message": "时间线",
+    "description": "时间线视图模式"
+  },
+  "viewGrid": {
+    "message": "网格",
+    "description": "网格视图模式"
+  },
+  "viewList": {
+    "message": "列表",
+    "description": "列表视图模式"
+  },
+  "statusReady": {
+    "message": "就绪",
+    "description": "状态栏就绪文本"
+  },
+  "movedToFolder": {
+    "message": "已移动到文件夹",
+    "description": "书签移动到文件夹提示"
+  },
+  "dragHint": {
+    "message": "拖拽书签到侧栏文件夹移动",
+    "description": "拖拽提示"
+  },
+  "allFolders": {
+    "message": "全部书签",
+    "description": "全部书签节点"
+  },
+  "collapseAll": {
+    "message": "全部折叠",
+    "description": "折叠所有文件夹节点"
+  },
+  "expandAll": {
+    "message": "全部展开",
+    "description": "展开所有文件夹节点"
+  },
+  "folderCount": {
+    "message": "$1 项",
+    "description": "文件夹项目计数"
+  },
+  "currentFolder": {
+    "message": "文件夹: $1",
+    "description": "状态栏当前文件夹显示"
+  },
   "recentlyDeleted": {
     "message": "最近删除",
     "description": "最近删除视图标题"

@@ -2044,17 +2044,15 @@ mark.hl {
 .preview-card {
   position: fixed;
   z-index: 9999;
-  /* 用 transform 定位走 GPU 合成层，避免 layout thrashing */
   left: 0;
   top: 0;
-  transform: translate3d(-9999px, -9999px, 0);
+  visibility: hidden;
+  opacity: 0;
   will-change: transform, opacity;
   /* 宽度自适应：媒体 + 文案，min 220 / max 360 */
   width: auto;
   min-width: 220px;
   max-width: 360px;
-  /* 固定高度：横版 100px (左图 + 右文) */
-  height: 100px;
   background: var(--bg-primary);
   border: 1px solid var(--border-medium);
   border-radius: 6px;
@@ -2062,17 +2060,15 @@ mark.hl {
   overflow: hidden;
   display: flex;
   flex-direction: row;
-  align-items: center;  /* 媒体高度 < 100 时垂直居中 */
+  align-items: center;
   pointer-events: auto;
   font-size: 11px;
-  /* 仅淡入淡出，不对位置做 transition（避免 hover 抖动） */
-  opacity: 0;
-  transition: opacity 0.12s ease-out;
-  contain: layout style paint;  /* 隔离渲染，开 GPU 合成 */
+  transform-origin: center bottom;
+  transition: opacity 0.15s cubic-bezier(0.2, 0, 0, 1),
+              transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+  contain: style paint;
 }
-.preview-card.preview-card--visible { opacity: 1; }
 
-.preview-card[hidden] { display: none; }
 
 /* 媒体区：宽高由 JS 按图片原比例动态设置（无留白） */
 .preview-media {

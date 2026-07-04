@@ -834,8 +834,6 @@ document.addEventListener('click', (e) => {
 // ===== Hover 预览卡片 (Mozilla Readability) =====
 const PREVIEW_HOVER_DELAY = 200;   // 鼠标停留多久后展示
 const PREVIEW_HIDE_DELAY = 120;    // 鼠标移出后多久关闭（给移到卡片上的窗口）
-const PREVIEW_CARD_WIDTH = 280;
-const PREVIEW_CARD_MAX_HEIGHT = 100;
 
 let previewCardEl = null;
 let previewHoverItem = null;
@@ -845,55 +843,111 @@ let previewFetchSeq = 0;
 let previewEnabled = true;
 const previewSessionCache = new Map(); // url -> { type: 'ok'|'empty'|'disabled'|'error', data? }
 
-function getPreviewCardEl() {
-  if (previewCardEl) return previewCardEl;
-  previewCardEl = document.getElementById('previewCard');
-  if (!previewCardEl) {
-    previewCardEl = document.createElement('div');
-    previewCardEl.id = 'previewCard';
-    previewCardEl.className = 'preview-card';
-    previewCardEl.hidden = true;
-    document.body.appendChild(previewCardEl);
-  }
-  // 鼠标移到卡片上时取消隐藏
-  previewCardEl.addEventListener('mouseenter', () => {
+// 预构建的 DOM 引用（避免每次 innerHTML 重建）
+let previewMediaEl = null;
+let previewImgEl = null;
+let previewPlaceholderEl = null;
+let previewPlaceholderInitialEl = null;
+let previewPlaceholderHostEl = null;
+let previewBodyEl = null;
+let previewTitleEl = null;
+let previewDescEl = null;
+let previewSiteEl = null;
+let previewEmptyMsgEl = null;
+
+function buildPreviewCardDOM() {
+  // 一次性构建完整 DOM 结构，之后只更新文本/属性
+  const el = document.createElement('div');
+  el.id = 'previewCard';
+  el.className = 'preview-card';
+  el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `
+    <div class="preview-media" style="display:none;">
+      <img class="preview-img" alt="" referrerpolicy="no-referrer">
+      <div class="preview-placeholder" style="display:none;">
+        <div class="preview-placeholder-initial"></div>
+        <div class="preview-placeholder-host"></div>
+      </div>
+    </div>
+    <div class="preview-body">
+      <div class="preview-title"></div>
+      <div class="preview-desc"></div>
+      <div class="preview-site"></div>
+    </div>
+    <div class="preview-empty-msg" style="display:none;"></div>
+  `;
+  document.body.appendChild(el);
+
+  // 缓存引用
+  previewMediaEl = el.querySelector('.preview-media');
+  previewImgEl = el.querySelector('.preview-img');
+  previewPlaceholderEl = el.querySelector('.preview-placeholder');
+  previewPlaceholderInitialEl = el.querySelector('.preview-placeholder-initial');
+  previewPlaceholderHostEl = el.querySelector('.preview-placeholder-host');
+  previewBodyEl = el.querySelector('.preview-body');
+  previewTitleEl = el.querySelector('.preview-title');
+  previewDescEl = el.querySelector('.preview-desc');
+  previewSiteEl = el.querySelector('.preview-site');
+  previewEmptyMsgEl = el.querySelector('.preview-empty-msg');
+
+  // 鼠标在卡片上时取消隐藏
+  el.addEventListener('mouseenter', () => {
     if (previewHideTimer) { clearTimeout(previewHideTimer); previewHideTimer = null; }
   });
-  previewCardEl.addEventListener('mouseleave', () => {
+  el.addEventListener('mouseleave', () => {
     scheduleHidePreview();
   });
 
-  // 图片加载完后媒体尺寸变化 → 重新定位（避免 layout 抖动）
-  if (typeof ResizeObserver !== 'undefined') {
-    if (!previewCardEl.__resizeObserver) {
-      const ro = new ResizeObserver(() => {
-        if (previewHoverItem && !previewCardEl.hidden) {
-          schedulePositionUpdate(previewHoverItem);
-        }
-      });
-      ro.observe(previewCardEl);
-      previewCardEl.__resizeObserver = ro;
-    }
-  }
+  // 图片错误处理（事件委托，一次性绑定）
+  previewImgEl.addEventListener('error', () => {
+    handlePreviewImgError(previewImgEl);
+  });
+
+  return el;
+}
+
+function getPreviewCardEl() {
+  if (previewCardEl && previewMediaEl) return previewCardEl;
+  // 如果 HTML 中已有空壳元素，先移除，由 buildPreviewCardDOM 重新构建
+  const existing = document.getElementById('previewCard');
+  if (existing) existing.remove();
+  previewCardEl = buildPreviewCardDOM();
   return previewCardEl;
 }
 
-// ============ 定位节流（rAF 合并 + ResizeObserver 触发） ============
-let previewPosRAF = null;
-let previewPosTarget = null;
-function schedulePositionUpdate(itemEl) {
-  previewPosTarget = itemEl;
-  if (previewPosRAF) return;
-  previewPosRAF = requestAnimationFrame(() => {
-    previewPosRAF = null;
-    const target = previewPosTarget;
-    previewPosTarget = null;
-    if (target) positionPreviewCard(target);
-  });
+// ---- 位置计算（纯计算，不触发读写混合） ----
+let _lastCardRect = null;
+
+function calcPreviewPosition(itemEl) {
+  const rect = itemEl.getBoundingClientRect();
+  const margin = 8;
+  const cardW = _lastCardRect ? _lastCardRect.width : 280;
+  const cardH = _lastCardRect ? _lastCardRect.height : 100;
+
+  const itemCenterX = rect.left + rect.width / 2;
+  let left = Math.round(itemCenterX - cardW / 2);
+  let top = Math.round(rect.top - cardH - margin);
+
+  const minLeft = 4;
+  const maxLeft = window.innerWidth - cardW - 4;
+  if (left < minLeft) left = minLeft;
+  if (left > maxLeft) left = maxLeft;
+
+  if (top < 4) top = Math.round(rect.bottom + margin);
+  if (top + cardH > window.innerHeight - 4) top = Math.max(4, window.innerHeight - cardH - 4);
+
+  return { left, top };
 }
 
+function applyPreviewPosition(pos) {
+  if (!previewCardEl) return;
+  previewCardEl.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0)`;
+}
+
+// ---- 显示 / 隐藏 ----
+
 function isOverPreviewCard() {
-  return previewCardEl && !previewCardEl.hidden && previewCardEl.matches(':hover');
+  return previewCardEl && previewCardEl.style.visibility === 'visible' && previewCardEl.matches(':hover');
 }
 
 function scheduleHidePreview() {
@@ -905,165 +959,180 @@ function scheduleHidePreview() {
   }, PREVIEW_HIDE_DELAY);
 }
 
+function showPreviewCardEl(itemEl) {
+  const el = getPreviewCardEl();
+  // 1. 计算位置（纯读）
+  const pos = calcPreviewPosition(itemEl);
+  // 2. 先把卡片放到目标位置（不可见状态），避免入场时位置跳动
+  el.style.transition = 'none';
+  el.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0) scale(0.96)`;
+  el.style.visibility = 'visible';
+  el.style.opacity = '0';
+  el.setAttribute('aria-hidden', 'false');
+  // 3. 在下一帧开启过渡 + 最终状态，触发丝滑入场
+  requestAnimationFrame(() => {
+    el.style.transition = '';
+    el.style.opacity = '1';
+    el.style.transform = `translate3d(${pos.left}px, ${pos.top}px, 0) scale(1)`;
+    _lastCardRect = { width: el.offsetWidth, height: el.offsetHeight };
+  });
+}
+
 function hidePreviewCard() {
   if (previewShowTimer) { clearTimeout(previewShowTimer); previewShowTimer = null; }
   if (previewHideTimer) { clearTimeout(previewHideTimer); previewHideTimer = null; }
-  if (previewCardEl) {
-    // 用 class 控制显隐，配合 CSS opacity 淡出
-    previewCardEl.classList.remove('preview-card--visible');
-    // 淡出后再 hidden，避免 hover 时跳变
-    setTimeout(() => {
-      if (previewCardEl && !previewCardEl.classList.contains('preview-card--visible')) {
-        previewCardEl.hidden = true;
-        previewCardEl.innerHTML = '';
-        previewCardEl.className = 'preview-card';
-      }
-    }, 150);
-  }
+  if (!previewCardEl) return;
+
+  previewCardEl.style.opacity = '0';
+  previewCardEl.setAttribute('aria-hidden', 'true');
+
+  const cleanup = () => {
+    previewCardEl.removeEventListener('transitionend', cleanup);
+    if (previewCardEl.style.opacity === '0') {
+      previewCardEl.style.visibility = 'hidden';
+      resetPreviewContent();
+    }
+  };
+  previewCardEl.addEventListener('transitionend', cleanup);
+  setTimeout(() => {
+    if (previewCardEl && previewCardEl.style.opacity === '0') {
+      previewCardEl.style.visibility = 'hidden';
+      resetPreviewContent();
+    }
+  }, 250);
+
   previewHoverItem = null;
 }
 
-function escapeAttr(s) {
-  return (s == null ? '' : String(s))
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+// ---- 内容更新（零 innerHTML，只改 textContent / 属性） ----
+
+function resetPreviewContent() {
+  if (!previewMediaEl) return;
+  previewMediaEl.style.display = 'none';
+  previewBodyEl.style.display = 'none';
+  previewEmptyMsgEl.style.display = 'none';
+  previewImgEl.removeAttribute('src');
+  previewImgEl.setAttribute('data-retry', '0');
+  previewTitleEl.textContent = '';
+  previewDescEl.textContent = '';
+  previewSiteEl.textContent = '';
+  previewEmptyMsgEl.textContent = '';
+  previewImgEl.style.display = '';
+  previewPlaceholderEl.style.display = 'none';
 }
 
-function renderPreviewPlaceholder(itemEl) {
-  // 即时占位内容：书签的 title + URL，确保用户能看到反馈
-  const el = getPreviewCardEl();
-  el.className = 'preview-card preview-card--placeholder';
-  const title = itemEl.dataset.title || '';
-  const url = itemEl.dataset.url || '';
+function showPlaceholderContent(title, url) {
   let host = '';
   try { host = new URL(url).host; } catch (e) { host = url; }
-  el.innerHTML = `
-    <div class="preview-body">
-      <div class="preview-title">${escapeHtml(title)}</div>
-      <div class="preview-desc preview-desc--loading" data-i18n="previewLoading">${escapeHtml(i18n('previewLoading') || 'Loading…')}</div>
-      <div class="preview-site">${escapeHtml(host)}</div>
-    </div>
-  `;
+
+  previewMediaEl.style.display = 'none';
+  previewEmptyMsgEl.style.display = 'none';
+  previewBodyEl.style.display = '';
+  previewTitleEl.textContent = title || '';
+  previewDescEl.textContent = i18n('previewLoading') || 'Loading\u2026';
+  previewDescEl.className = 'preview-desc preview-desc--loading';
+  previewSiteEl.textContent = host;
 }
 
-function renderPreviewLoading() {
-  const el = getPreviewCardEl();
-  el.className = 'preview-card preview-card--loading';
-  el.innerHTML = `
-    <div class="preview-body">
-      <div class="preview-skeleton preview-skeleton--title"></div>
-      <div class="preview-skeleton preview-skeleton--line"></div>
-      <div class="preview-skeleton preview-skeleton--line"></div>
-      <div class="preview-skeleton preview-skeleton--line preview-skeleton--short"></div>
-    </div>
-  `;
-}
-
-function renderPreviewContent(data) {
-  const el = getPreviewCardEl();
-  el.className = 'preview-card';
+function showPreviewContent(data) {
   const siteName = data.siteName || getHostOfUrl(data.url || '') || '';
-  const initial = getSiteInitial(siteName, data.url || '');
-  const initialEsc = escapeHtml(initial);
-  const siteEsc = escapeHtml(siteName);
 
-  // 统一 media 容器：有图 → img，失败/无图 → 占位
-  // 注意：Manifest V3 CSP 禁止内联事件处理器，onerror 必须用 addEventListener 绑定
-  const mediaHtml = data.image
-    ? `<img class="preview-img" src="${escapeAttr(data.image)}" alt="" referrerpolicy="no-referrer" data-initial="${initialEsc}" data-host="${siteEsc}" data-host-url="${escapeAttr(data.url || '')}" data-retry="0">`
-    : `<div class="preview-placeholder"><div class="preview-placeholder-initial">${initialEsc}</div><div class="preview-placeholder-host">${siteEsc}</div></div>`;
-
-  const titleText = data.title || '';
-  const descText = data.description || data.excerpt || '';
-  const titleHtml = titleText ? `<div class="preview-title">${escapeHtml(titleText)}</div>` : '';
-  const descHtml = descText ? `<div class="preview-desc">${escapeHtml(descText)}</div>` : '';
-
-  el.innerHTML = `
-    <div class="preview-media">${mediaHtml}</div>
-    <div class="preview-body">
-      ${titleHtml}
-      ${descHtml}
-      <div class="preview-site">${siteEsc}</div>
-    </div>
-  `;
-
-  // 图片加载完后，按原图比例动态调整 media 容器大小（无留白）
+  // 图片 / 占位
   if (data.image) {
-    const img = el.querySelector('.preview-img');
-    const mediaEl = el.querySelector('.preview-media');
-    if (img && mediaEl) {
-      const adjust = () => {
-        const nw = img.naturalWidth, nh = img.naturalHeight;
-        if (!nw || !nh) return;
-        // 边界：宽度 60~120，高度 60~100
-        const MIN_W = 60, MAX_W = 120, MIN_H = 60, MAX_H = 100;
-        const ratio = nw / nh;
-        let w, h;
-        if (ratio >= 1) {
-          // 横向/方形：以宽为基准
-          w = MAX_W;
-          h = Math.round(w / ratio);
-          if (h < MIN_H) { h = MIN_H; w = Math.min(MAX_W, Math.round(h * ratio)); }
-          if (h > MAX_H) { h = MAX_H; w = Math.min(MAX_W, Math.round(h * ratio)); }
-        } else {
-          // 纵向：以高为基准
-          h = MAX_H;
-          w = Math.round(h * ratio);
-          if (w < MIN_W) { w = MIN_W; h = Math.min(MAX_H, Math.round(w / ratio)); }
-          if (w > MAX_W) { w = MAX_W; h = Math.min(MAX_H, Math.round(w / ratio)); }
-        }
-        // 一次性设置避免多次 reflow（ResizeObserver 会自动重定位）
-        mediaEl.style.cssText = `width:${w}px;height:${h}px;`;
-      };
-      // Manifest V3 CSP 禁止内联 onerror，必须用 addEventListener 绑定
-      img.addEventListener('error', function onError() {
-        handlePreviewImgError(img);
-      });
-      if (img.complete && img.naturalWidth > 0) {
-        adjust();
-      } else if (img.complete && img.naturalWidth === 0) {
-        // 图片已加载但失败（naturalWidth=0），触发回退
-        handlePreviewImgError(img);
+    previewMediaEl.style.display = '';
+    previewImgEl.style.display = '';
+    previewPlaceholderEl.style.display = 'none';
+    previewImgEl.setAttribute('data-initial', getSiteInitial(siteName, data.url || ''));
+    previewImgEl.setAttribute('data-host', siteName);
+    previewImgEl.setAttribute('data-host-url', data.url || '');
+    previewImgEl.setAttribute('data-retry', '0');
+    previewImgEl.referrerPolicy = 'no-referrer';
+    previewImgEl.src = data.image;
+
+    const checkImgSize = () => {
+      const nw = previewImgEl.naturalWidth, nh = previewImgEl.naturalHeight;
+      if (!nw || !nh) return;
+      const MIN_W = 60, MAX_W = 120, MIN_H = 60, MAX_H = 100;
+      const ratio = nw / nh;
+      let w, h;
+      if (ratio >= 1) {
+        w = MAX_W; h = Math.round(w / ratio);
+        if (h < MIN_H) { h = MIN_H; w = Math.min(MAX_W, Math.round(h * ratio)); }
+        if (h > MAX_H) { h = MAX_H; w = Math.min(MAX_W, Math.round(h * ratio)); }
       } else {
-        img.addEventListener('load', adjust, { once: true });
+        h = MAX_H; w = Math.round(h * ratio);
+        if (w < MIN_W) { w = MIN_W; h = Math.min(MAX_H, Math.round(w / ratio)); }
+        if (w > MAX_W) { w = MAX_W; h = Math.min(MAX_H, Math.round(w * ratio)); }
       }
+      previewMediaEl.style.width = w + 'px';
+      previewMediaEl.style.height = h + 'px';
+    };
+
+    if (previewImgEl.complete && previewImgEl.naturalWidth > 0) {
+      checkImgSize();
+    } else if (previewImgEl.complete && previewImgEl.naturalWidth === 0) {
+      handlePreviewImgError(previewImgEl);
+    } else {
+      previewImgEl.addEventListener('load', () => {
+        checkImgSize();
+        if (previewHoverItem) {
+          requestAnimationFrame(() => {
+            if (previewHoverItem) {
+              const pos = calcPreviewPosition(previewHoverItem);
+              applyPreviewPosition(pos);
+              _lastCardRect = { width: previewCardEl.offsetWidth, height: previewCardEl.offsetHeight };
+            }
+          });
+        }
+      }, { once: true });
     }
+  } else {
+    previewMediaEl.style.display = '';
+    previewImgEl.style.display = 'none';
+    previewPlaceholderEl.style.display = '';
+    previewPlaceholderInitialEl.textContent = getSiteInitial(siteName, data.url || '');
+    previewPlaceholderHostEl.textContent = siteName;
+    previewMediaEl.style.width = '80px';
+    previewMediaEl.style.height = '80px';
   }
+
+  previewEmptyMsgEl.style.display = 'none';
+  previewBodyEl.style.display = '';
+  previewTitleEl.textContent = data.title || '';
+  previewDescEl.textContent = data.description || data.excerpt || '';
+  previewDescEl.className = 'preview-desc';
+  previewSiteEl.textContent = siteName;
 }
 
-// 图片加载失败时逐步回退
-// 回退链：origin referrer 重试 → DuckDuckGo Favicon → Google Favicon → 首字母占位
+function showPreviewMessage(message) {
+  previewMediaEl.style.display = 'none';
+  previewBodyEl.style.display = 'none';
+  previewEmptyMsgEl.style.display = '';
+  previewEmptyMsgEl.textContent = message;
+}
+
 function handlePreviewImgError(img) {
   try {
     const initial = img.getAttribute('data-initial') || '?';
     const host = img.getAttribute('data-host') || '';
     const retry = parseInt(img.getAttribute('data-retry') || '0', 10);
 
-    // 1) 第一次失败：当前是 no-referrer，尝试 origin（部分 CDN 如 B 站/微博需要 referer 才放行）
     if (retry === 0) {
       img.setAttribute('data-retry', '1');
       img.referrerPolicy = 'origin';
-      // 先清空 src 再赋值，确保浏览器重新触发加载（直接赋相同值可能不触发）
       const currentSrc = img.src;
       img.src = '';
       img.src = currentSrc;
       return;
     }
-
-    // 2) 第二次失败：尝试 favicon 服务回退
-    //    优先 DuckDuckGo（国内可访问），其次 Google（可能被墙）
     if (host) {
       const ddgSrc = `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`;
       if (img.src !== ddgSrc) {
         img.setAttribute('data-retry', '2');
         img.referrerPolicy = 'no-referrer';
         img.src = ddgSrc;
-        // 后续失败由 addEventListener('error') 自动触发 handlePreviewImgError
         return;
       }
-      // DuckDuckGo 也失败 → 尝试 Google Favicon
       const googleSrc = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`;
       if (img.src !== googleSrc) {
         img.setAttribute('data-retry', '3');
@@ -1071,63 +1140,22 @@ function handlePreviewImgError(img) {
         return;
       }
     }
-
-    // 4) 所有回退都失败 → 首字母占位
-    replaceWithPlaceholder(img, initial, host);
+    img.style.display = 'none';
+    previewPlaceholderEl.style.display = '';
+    previewPlaceholderInitialEl.textContent = initial;
+    previewPlaceholderHostEl.textContent = host;
   } catch (e) {
-    if (img.parentNode) img.parentNode.removeChild(img);
+    img.style.display = 'none';
+    previewPlaceholderEl.style.display = '';
   }
 };
 
-function replaceWithPlaceholder(img, initial, host) {
-  try {
-    const ph = document.createElement('div');
-    ph.className = 'preview-placeholder';
-    ph.innerHTML = '<div class="preview-placeholder-initial">' + initial + '</div>' +
-                   (host ? '<div class="preview-placeholder-host">' + host + '</div>' : '');
-    if (img.parentNode) img.parentNode.replaceChild(ph, img);
-  } catch (e) {
-    if (img.parentNode) img.parentNode.removeChild(img);
-  }
-}
-
-function renderPreviewMessage(state, message) {
-  const el = getPreviewCardEl();
-  el.className = `preview-card preview-card--${state}`;
-  el.innerHTML = `<div class="preview-empty-msg">${escapeHtml(message)}</div>`;
-}
-
-function positionPreviewCard(itemEl) {
-  if (!previewCardEl || previewCardEl.hidden) return;
-  const rect = itemEl.getBoundingClientRect();
-  const margin = 8;
-
-  // 取卡片实际尺寸（图片动态调整后宽高可能变化）
-  const cardW = previewCardEl.offsetWidth || PREVIEW_CARD_WIDTH;
-  const cardH = previewCardEl.offsetHeight || PREVIEW_CARD_MAX_HEIGHT;
-
-  // 默认：放在书签上方，水平居中于书签
-  const itemCenterX = rect.left + rect.width / 2;
-  let left = Math.round(itemCenterX - cardW / 2);
-  let top = Math.round(rect.top - cardH - margin);
-
-  // 水平边界：贴边不超出视口
-  const minLeft = 4;
-  const maxLeft = window.innerWidth - cardW - 4;
-  if (left < minLeft) left = minLeft;
-  if (left > maxLeft) left = maxLeft;
-
-  // 顶部空间不够：放到书签下方（仍然水平居中）
-  if (top < 4) {
-    top = Math.round(rect.bottom + margin);
-  }
-  // 下方也不够：吸顶
-  if (top + cardH > window.innerHeight - 4) {
-    top = Math.max(4, window.innerHeight - cardH - 4);
-  }
-
-  // 用 transform 定位走 GPU 合成层（避免 layout thrashing）
-  previewCardEl.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+function escapeAttr(s) {
+  return (s == null ? '' : String(s))
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // ===== Readability 解析辅助 =====
@@ -1160,7 +1188,6 @@ function getSiteInitial(siteName, url) {
 
 // 多级 fallback 取缩略图（Readability 自身不返回 image）
 function extractImage(doc, article, pageUrl) {
-  // 1) og:image 系列
   const og = pickMetaContent(doc, [
     'meta[property="og:image:secure_url"]',
     'meta[property="og:image:url"]',
@@ -1168,7 +1195,6 @@ function extractImage(doc, article, pageUrl) {
   ]);
   if (og) return absolutizeUrl(og, pageUrl);
 
-  // 2) twitter:image
   const tw = pickMetaContent(doc, [
     'meta[name="twitter:image:src"]',
     'meta[property="twitter:image:src"]',
@@ -1177,7 +1203,6 @@ function extractImage(doc, article, pageUrl) {
   ]);
   if (tw) return absolutizeUrl(tw, pageUrl);
 
-  // 3) Readability content 内的第一张图
   if (article && article.content) {
     const tmp = document.createElement('div');
     tmp.innerHTML = article.content;
@@ -1185,31 +1210,26 @@ function extractImage(doc, article, pageUrl) {
     for (const img of imgs) {
       const src = img.getAttribute('src') || '';
       if (!src) continue;
-      // 过滤掉追踪像素和极小图标
       if (isTrackingPixel(img)) continue;
       return absolutizeUrl(src, pageUrl);
     }
   }
 
-  // 3.5) 抖音/视频站 SPA 兜底：<video poster="...">
   const videoPoster = doc.querySelector('video[poster]');
   if (videoPoster) {
     const poster = videoPoster.getAttribute('poster') || '';
     if (poster) return absolutizeUrl(poster, pageUrl);
   }
 
-  // 4) 全页第一张有意义的图（跳过追踪像素、1px 图、小图标）
   const allImgs = doc.querySelectorAll('img[src]');
   for (const img of allImgs) {
     const src = img.getAttribute('src') || '';
     if (!src) continue;
     if (isTrackingPixel(img)) continue;
-    // 跳过 data: URI 的小内联图（通常是图标/装饰）
     if (src.startsWith('data:') && src.length < 500) continue;
     return absolutizeUrl(src, pageUrl);
   }
 
-  // 5) icon
   const icon = pickMetaContent(doc, [
     'link[rel="apple-touch-icon-precomposed"]',
     'link[rel="apple-touch-icon"]',
@@ -1220,13 +1240,10 @@ function extractImage(doc, article, pageUrl) {
   return '';
 }
 
-// 判断是否为追踪像素或极小装饰图
 function isTrackingPixel(img) {
   const w = parseInt(img.getAttribute('width') || '0', 10);
   const h = parseInt(img.getAttribute('height') || '0', 10);
-  // 明确标记为 1px 或极小的图
   if ((w > 0 && w <= 2) || (h > 0 && h <= 2)) return true;
-  // 常见追踪像素的 class/id 特征
   const cls = (img.getAttribute('class') || '').toLowerCase();
   const id = (img.getAttribute('id') || '').toLowerCase();
   const trackingHints = ['pixel', 'track', 'beacon', 'spacer', 'blank', '1x1'];
@@ -1248,7 +1265,6 @@ function extractTitle(doc, article) {
 }
 
 function extractDescription(doc, article) {
-  // Readability 的 excerpt 通常是机器生成的最佳摘要
   if (article && article.excerpt && article.excerpt.length >= 30) {
     return article.excerpt;
   }
@@ -1281,21 +1297,14 @@ function extractSiteName(doc, article, pageUrl) {
   return getHostOfUrl(pageUrl);
 }
 
-// 用 Mozilla Readability 在 popup 内解析 HTML（popup 有 DOMParser，SW 没有）
 function buildPreviewFromHtml(url, html) {
   try {
     const doc = new DOMParser().parseFromString(html, 'text/html');
-
-    // 注入 <base> 标签确保相对 URL 能被正确解析
-    // DOMParser 解析的文档 baseURI 通常是 about:blank，设置 doc.baseURI 在多数浏览器中无效
-    // 所以通过注入 <base href> 来修正
     if (!doc.querySelector('base[href]')) {
       const baseTag = doc.createElement('base');
       baseTag.href = url;
       (doc.head || doc.documentElement).insertBefore(baseTag, (doc.head || doc.documentElement).firstChild);
     }
-
-    // 修正 baseURI：Readability 解析相对链接会用到
     const baseEl = doc.querySelector('base[href]');
     const baseHref = baseEl ? baseEl.getAttribute('href') : url;
     try {
@@ -1303,11 +1312,9 @@ function buildPreviewFromHtml(url, html) {
     } catch {
       try { doc.baseURI = url; } catch {}
     }
-
-    // 官方推荐：传 clone 避免 Readability 污染原 doc
     const docClone = doc.cloneNode(true);
     const reader = new Readability(docClone, {
-      charThreshold: 200,   // 降低阈值，更多页面能解析成功
+      charThreshold: 200,
       keepClasses: false
     });
     const article = reader.parse();
@@ -1317,8 +1324,6 @@ function buildPreviewFromHtml(url, html) {
     const siteName = extractSiteName(doc, article, url) || getHostOfUrl(url);
     const image = extractImage(doc, article, url);
 
-    // 放宽条件：SPA 站点（如 bilibili）Readability 可能解析不出 title/description，
-    // 但 meta 标签中有 og:image 等有价值信息，只要有任意一项内容就返回
     if (!title && !description && !image) return null;
 
     return {
@@ -1334,7 +1339,7 @@ function buildPreviewFromHtml(url, html) {
       provider: 'readability'
     };
   } catch (e) {
-    console.warn('[Preview] Readability 提取失败:', url, e);
+    console.warn('[Preview] Readability \u63d0\u53d6\u5931\u8d25:', url, e);
     return null;
   }
 }
@@ -1357,74 +1362,55 @@ async function fetchAndRenderPreview(itemEl, url) {
   }
   if (seq !== previewFetchSeq || itemEl !== previewHoverItem) return;
   if (!response || !response.success) {
-    const entry = { type: 'error' };
-    previewSessionCache.set(url, entry);
-    renderPreviewMessage('error', i18n('previewError') || 'Failed to load');
+    previewSessionCache.set(url, { type: 'error' });
+    showPreviewMessage(i18n('previewError') || 'Failed to load');
     return;
   }
   const result = response.result || {};
   if (result.disabled) {
     previewEnabled = false;
-    const entry = { type: 'disabled' };
-    previewSessionCache.set(url, entry);
-    renderPreviewMessage('disabled', i18n('previewDisabled') || 'Preview disabled');
+    previewSessionCache.set(url, { type: 'disabled' });
+    showPreviewMessage(i18n('previewDisabled') || 'Preview disabled');
     return;
   }
   if (result.error) {
-    const entry = { type: 'error' };
-    previewSessionCache.set(url, entry);
-    renderPreviewMessage('error', i18n('previewError') || 'Failed to load');
+    previewSessionCache.set(url, { type: 'error' });
+    showPreviewMessage(i18n('previewError') || 'Failed to load');
     return;
   }
-  // 1) 缓存命中（有 title 或有 image 即可）
   if (result.preview && (result.preview.title || result.preview.image)) {
     const entry = { type: 'ok', data: result.preview };
     previewSessionCache.set(url, entry);
     drawPreviewFromCache(entry, itemEl);
     return;
   }
-  // 2) 未命中，SW 抓回 HTML，本地解析
   if (result.html) {
     let data = buildPreviewFromHtml(url, result.html);
     if (seq !== previewFetchSeq || itemEl !== previewHoverItem) return;
-    // SPA 空壳兜底：HTML 中无任何可提取内容时，用书签自身信息构建基础预览
     if (!data) {
       const host = getHostOfUrl(url) || '';
-      const initial = getSiteInitial(host, url);
       data = {
         url,
         title: itemEl.dataset.title || host,
-        description: '',
-        excerpt: '',
-        byline: '',
-        siteName: host,
-        image: '',  // 无图 → 首字母占位
-        lengthChars: 0,
-        fetchedAt: Date.now(),
+        description: '', excerpt: '', byline: '',
+        siteName: host, image: '',
+        lengthChars: 0, fetchedAt: Date.now(),
         provider: 'bookmark-fallback'
       };
     }
-    // 异步回写缓存（不阻塞显示）
-    chrome.runtime.sendMessage({ action: 'setPreviewCache', url, preview: data })
-      .catch(() => {});
+    chrome.runtime.sendMessage({ action: 'setPreviewCache', url, preview: data }).catch(() => {});
     const entry = { type: 'ok', data };
     previewSessionCache.set(url, entry);
     drawPreviewFromCache(entry, itemEl);
     return;
   }
-  // 3) 兜底：SW 也抓不到 HTML，用书签自身信息
   const host = getHostOfUrl(url) || '';
-  const initial = getSiteInitial(host, url);
   const fallbackData = {
     url,
     title: itemEl.dataset.title || host,
-    description: '',
-    excerpt: '',
-    byline: '',
-    siteName: host,
-    image: '',
-    lengthChars: 0,
-    fetchedAt: Date.now(),
+    description: '', excerpt: '', byline: '',
+    siteName: host, image: '',
+    lengthChars: 0, fetchedAt: Date.now(),
     provider: 'bookmark-fallback'
   };
   const entry = { type: 'ok', data: fallbackData };
@@ -1434,25 +1420,25 @@ async function fetchAndRenderPreview(itemEl, url) {
 
 function drawPreviewFromCache(entry, itemEl) {
   if (itemEl !== previewHoverItem) return;
+  getPreviewCardEl();
   if (entry.type === 'ok') {
-    renderPreviewContent(entry.data);
+    showPreviewContent(entry.data);
   } else if (entry.type === 'empty') {
-    renderPreviewMessage('empty', i18n('previewEmpty') || 'No preview available');
+    showPreviewMessage(i18n('previewEmpty') || 'No preview available');
   } else if (entry.type === 'disabled') {
-    renderPreviewMessage('disabled', i18n('previewDisabled') || 'Preview disabled');
+    showPreviewMessage(i18n('previewDisabled') || 'Preview disabled');
   } else {
-    renderPreviewMessage('error', i18n('previewError') || 'Failed to load');
+    showPreviewMessage(i18n('previewError') || 'Failed to load');
   }
-  showPreviewCardEl(itemEl);
-}
-
-function showPreviewCardEl(itemEl) {
-  const el = getPreviewCardEl();
-  el.hidden = false;
-  // 强制 reflow 后再加 visible class，触发 opacity 过渡
-  el.offsetWidth;
-  el.classList.add('preview-card--visible');
-  positionPreviewCard(itemEl);
+  requestAnimationFrame(() => {
+    if (previewHoverItem) {
+      const pos = calcPreviewPosition(previewHoverItem);
+      applyPreviewPosition(pos);
+      if (previewCardEl) {
+        _lastCardRect = { width: previewCardEl.offsetWidth, height: previewCardEl.offsetHeight };
+      }
+    }
+  });
 }
 
 function showPreviewForItem(itemEl) {
@@ -1469,8 +1455,9 @@ function showPreviewForItem(itemEl) {
   previewHoverItem = itemEl;
   if (previewHideTimer) { clearTimeout(previewHideTimer); previewHideTimer = null; }
   if (previewShowTimer) clearTimeout(previewShowTimer);
-  // 立即显示书签自身信息的占位卡片
-  renderPreviewPlaceholder(itemEl);
+  // 确保 DOM 已构建，再显示占位内容
+  getPreviewCardEl();
+  showPlaceholderContent(itemEl.dataset.title, url);
   showPreviewCardEl(itemEl);
   // 然后延迟抓取完整预览
   previewShowTimer = setTimeout(() => {
@@ -1501,7 +1488,7 @@ timelineContent.addEventListener('mouseout', (e) => {
 
 // 滚动、视图切换、ESC 关闭
 document.querySelector('.main').addEventListener('scroll', () => {
-  if (previewCardEl && !previewCardEl.hidden) hidePreviewCard();
+  if (previewCardEl && previewCardEl.style.visibility === 'visible') hidePreviewCard();
 }, true);
 
 document.querySelector('.view-tabs')?.addEventListener('click', () => {
@@ -1509,7 +1496,7 @@ document.querySelector('.view-tabs')?.addEventListener('click', () => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && previewCardEl && !previewCardEl.hidden) {
+  if (e.key === 'Escape' && previewCardEl && previewCardEl.style.visibility === 'visible') {
     hidePreviewCard();
   }
 });
@@ -1518,12 +1505,11 @@ document.addEventListener('keydown', (e) => {
 timelineContent.addEventListener('click', (e) => {
   const item = e.target.closest('.bookmark-item');
   if (!item) return;
-  if (previewCardEl && !previewCardEl.hidden) hidePreviewCard();
+  if (previewCardEl && previewCardEl.style.visibility === 'visible') hidePreviewCard();
 }, true);
 
 async function loadPreviewEnabled() {
   try {
-    // 直接读 storage，比消息通道更可靠、更快
     const result = await chrome.storage.local.get('previewEnabled');
     previewEnabled = result.previewEnabled !== false;
     console.log('[Preview] enabled =', previewEnabled);
@@ -2381,10 +2367,10 @@ menuGraphBtn.addEventListener('click', () => {
 menuPanelBtn.addEventListener('click', () => {
   footerMenu.classList.remove('footer-menu--open');
   chrome.windows.create({
-    url: chrome.runtime.getURL('pages/popup/popup.html'),
+    url: chrome.runtime.getURL('pages/standalone/standalone.html'),
     type: 'popup',
-    width: 460,
-    height: 640
+    width: 960,
+    height: 680
   });
 });
 
