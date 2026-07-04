@@ -65,6 +65,7 @@ let currentViewMode = 'timeline';
 let selectedFolderId = null;
 let folderTreeData = null;
 let folderIdSet = new Set();
+let expandedFolderIds = new Set(); // 记录已展开的文件夹 ID
 let duplicateIds = new Set();
 let bulkMode = false;
 let selectedIds = new Set();
@@ -532,6 +533,16 @@ function filterByFolder(bookmarks) {
 
 function renderFolderTree() {
   if (!folderTreeData) return;
+
+  // 首次渲染时默认展开第一层子文件夹
+  if (expandedFolderIds.size === 0 && folderTreeData.children) {
+    for (const child of folderTreeData.children) {
+      if (child.url === undefined && child.children?.some(c => c.url === undefined)) {
+        expandedFolderIds.add(child.id);
+      }
+    }
+  }
+
   saFolderTree.innerHTML = '';
 
   // "全部书签" 节点
@@ -565,7 +576,7 @@ function renderTreeNode(node, depth) {
   div.draggable = false;
 
   const hasChildren = node.children && node.children.some(c => c.url === undefined);
-  const isExpanded = div.dataset.expanded !== 'false';
+  const isExpanded = expandedFolderIds.has(node.id);
 
   div.innerHTML = `
     <span class="sa-tree-toggle${hasChildren ? (isExpanded ? ' expanded' : '') : ' sa-tree-toggle--hidden'}">${SVG_CHEVRON}</span>
@@ -595,8 +606,11 @@ saFolderTree.addEventListener('click', (e) => {
 
   // 如果点击了展开/折叠箭头
   if (e.target.closest('.sa-tree-toggle') && !toggle.classList.contains('sa-tree-toggle--hidden')) {
-    toggle.classList.toggle('expanded');
-    // 重新渲染树（简单方式）
+    if (expandedFolderIds.has(folderId)) {
+      expandedFolderIds.delete(folderId);
+    } else {
+      expandedFolderIds.add(folderId);
+    }
     renderFolderTree();
     return;
   }
@@ -610,12 +624,21 @@ saFolderTree.addEventListener('click', (e) => {
 
 // 展开/折叠全部
 $('saCollapseAllBtn').addEventListener('click', () => {
-  saFolderTree.querySelectorAll('.sa-tree-toggle.expanded').forEach(t => t.classList.remove('expanded'));
+  expandedFolderIds.clear();
   renderFolderTree();
 });
 
 $('saExpandAllBtn').addEventListener('click', () => {
-  saFolderTree.querySelectorAll('.sa-tree-toggle:not(.sa-tree-toggle--hidden)').forEach(t => t.classList.add('expanded'));
+  // 收集所有有子文件夹的文件夹 ID
+  function collectExpandableIds(node) {
+    if (node.children?.some(c => c.url === undefined)) {
+      expandedFolderIds.add(node.id);
+      for (const child of node.children) {
+        if (child.url === undefined) collectExpandableIds(child);
+      }
+    }
+  }
+  if (folderTreeData) collectExpandableIds(folderTreeData);
   renderFolderTree();
 });
 
