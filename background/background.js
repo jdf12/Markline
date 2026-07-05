@@ -1766,8 +1766,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ===== 关闭所有独立窗口 =====
+function closeStandaloneWindows() {
+  const standaloneUrl = chrome.runtime.getURL('pages/standalone/standalone.html');
+  chrome.windows.getAll({ populate: true }, (windows) => {
+    for (const win of windows) {
+      if (win.type === 'popup' && win.tabs) {
+        for (const tab of win.tabs) {
+          if (tab.url && tab.url.startsWith(standaloneUrl)) {
+            chrome.windows.remove(win.id);
+            break;
+          }
+        }
+      }
+    }
+  });
+}
+
 // ===== 扩展安装/启动时自动同步 =====
 chrome.runtime.onInstalled.addListener(() => {
+  // 关闭所有已打开的独立窗口（插件重载后旧窗口上下文已失效）
+  closeStandaloneWindows();
+
   syncAllBookmarks();
   scheduleCheckerAlarm();
   // 预加载智能标签缓存（使 autoTagBookmarkSync 可同步运行）
