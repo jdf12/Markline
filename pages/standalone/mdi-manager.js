@@ -20,6 +20,9 @@
   const SVG_MDI_MAXIMIZE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>';
   const SVG_MDI_RESTORE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="14" height="14" rx="1"/><path d="M7 7V5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2"/></svg>';
   const SVG_MDI_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>';
+  const SVG_MDI_RELOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+  const SVG_MDI_VOLUME = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+  const SVG_MDI_MUTED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
   const SVG_MDI_WARNING = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
   const SVG_MDI_DESKTOP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
 
@@ -65,6 +68,8 @@
       this.cascadeCounter = 0;
       this._tileDropdown = null;
       this._iframeShield = null;
+      this._tabMuted = false; // 标签页级别静音状态
+      this._contextMenu = null;
 
       this._initTileDropdown();
       this._initEmptyPlaceholder();
@@ -105,7 +110,8 @@
         state: 'normal',
         position: { x: 0, y: 0, w: this.opts.defaultWindowWidth, h: this.opts.defaultWindowHeight },
         zIndex,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        _iframeLoaded: false // iframe 加载状态标记
       };
 
       // 先加入 Map，这样 _updateDesktopActive 才能感知到窗口存在
@@ -382,6 +388,7 @@
           <img class="mdi-window-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'">
           <span class="mdi-window-title">${escapeHtml(title)}</span>
           <div class="mdi-window-controls">
+            <button class="mdi-btn mdi-btn--reload" title="${escapeHtml(i18n('mdiReload'))}">${SVG_MDI_RELOAD}</button>
             <button class="mdi-btn mdi-btn--minimize" title="${escapeHtml(i18n('mdiMinimize'))}">${SVG_MDI_MINIMIZE}</button>
             <button class="mdi-btn mdi-btn--maximize" title="${escapeHtml(i18n('mdiMaximize'))}">${SVG_MDI_MAXIMIZE}</button>
             <button class="mdi-btn mdi-btn--close" title="${escapeHtml(i18n('mdiClose'))}">${SVG_MDI_CLOSE}</button>
@@ -409,6 +416,11 @@
       `;
 
       // --- Button handlers ---
+      win.querySelector('.mdi-btn--reload').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._rebuildIframe(win, id);
+      });
+
       win.querySelector('.mdi-btn--minimize').addEventListener('click', (e) => {
         e.stopPropagation();
         this.minimizeWindow(id);
@@ -623,8 +635,6 @@
       const iframe = winEl.querySelector('.mdi-window-iframe');
       const loading = winEl.querySelector('.mdi-window-loading');
       const fallback = winEl.querySelector('.mdi-window-fallback');
-      let loadTimeout = null;
-      let loaded = false;
 
       const hideLoading = () => {
         if (loading) loading.style.display = 'none';
@@ -636,43 +646,68 @@
         if (iframe) iframe.style.display = 'none';
       };
 
+      const isLoaded = () => {
+        const data = this.windows.get(windowId);
+        return data && data._iframeLoaded;
+      };
+
+      const markLoaded = () => {
+        const data = this.windows.get(windowId);
+        if (data) data._iframeLoaded = true;
+      };
+
       iframe.addEventListener('load', () => {
-        if (loaded) return;
-        loaded = true;
-        if (loadTimeout) clearTimeout(loadTimeout);
+        if (isLoaded()) return;
+        markLoaded();
+        const data = this.windows.get(windowId);
+        if (data && data._loadTimeout) { clearTimeout(data._loadTimeout); data._loadTimeout = null; }
         hideLoading();
       });
 
       iframe.addEventListener('error', () => {
-        if (loaded) return;
-        loaded = true;
-        if (loadTimeout) clearTimeout(loadTimeout);
+        if (isLoaded()) return;
+        markLoaded();
+        const data = this.windows.get(windowId);
+        if (data && data._loadTimeout) { clearTimeout(data._loadTimeout); data._loadTimeout = null; }
         showFallback();
       });
 
       // Timeout fallback
-      loadTimeout = setTimeout(() => {
-        if (!loaded) {
-          loaded = true;
-          // Check if iframe has content
-          try {
-            const doc = iframe.contentDocument;
-            if (doc && doc.body && doc.body.innerHTML.length > 0) {
-              // iframe has content, probably loaded successfully
+      const data = this.windows.get(windowId);
+      if (data) {
+        data._loadTimeout = setTimeout(() => {
+          if (!isLoaded()) {
+            markLoaded();
+            // Check if iframe has content
+            try {
+              const doc = iframe.contentDocument;
+              if (doc && doc.body && doc.body.innerHTML.length > 0) {
+                hideLoading();
+                return;
+              }
+            } catch (e) {
+              // Cross-origin: normal, iframe likely loaded fine
               hideLoading();
               return;
             }
-          } catch (e) {
-            // Cross-origin: normal, iframe likely loaded fine
-            hideLoading();
-            return;
+            showFallback();
           }
-          showFallback();
-        }
-      }, this.opts.iframeLoadTimeout);
+        }, this.opts.iframeLoadTimeout);
+      }
     }
 
     _initTileDropdown() {
+      // 静音按钮（标签页级别）
+      const muteBtn = document.createElement('button');
+      muteBtn.className = 'mdi-taskbar-mute-btn';
+      muteBtn.title = i18n('mdiMute');
+      muteBtn.innerHTML = SVG_MDI_VOLUME;
+      muteBtn.addEventListener('click', () => {
+        this._toggleTabMute();
+      });
+      this.taskbarEl.appendChild(muteBtn);
+      this._muteBtn = muteBtn;
+
       // Tile dropdown button in taskbar
       const tileBtn = document.createElement('button');
       tileBtn.className = 'mdi-taskbar-tile-btn';
@@ -776,6 +811,13 @@
           }
         });
 
+        // 右键菜单
+        entry.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this._showTaskbarContextMenu(e, id);
+        });
+
         // Insert before the tile dropdown button
         const tileBtn = this.taskbarEl.querySelector('.mdi-taskbar-tile-btn');
         if (tileBtn) {
@@ -784,6 +826,197 @@
           this.taskbarEl.appendChild(entry);
         }
       }
+    }
+
+    _showTaskbarContextMenu(e, targetId) {
+      // 移除已有菜单
+      this._hideTaskbarContextMenu();
+
+      const menu = document.createElement('div');
+      menu.className = 'mdi-taskbar-context-menu';
+      menu.innerHTML = `
+        <button class="mdi-context-item" data-action="close">${escapeHtml(i18n('mdiClose'))}</button>
+        <button class="mdi-context-item" data-action="closeOthers">${escapeHtml(i18n('mdiCloseOthers'))}</button>
+        <button class="mdi-context-item" data-action="closeRight">${escapeHtml(i18n('mdiCloseRight'))}</button>
+        <button class="mdi-context-item" data-action="closeLeft">${escapeHtml(i18n('mdiCloseLeft'))}</button>
+      `;
+
+      // 计算菜单位置（在任务栏条目上方弹出）
+      const rect = e.target.closest('.mdi-taskbar-entry').getBoundingClientRect();
+      menu.style.left = rect.left + 'px';
+      menu.style.top = (rect.top - 4) + 'px';
+      menu.style.transform = 'translateY(-100%)';
+
+      document.body.appendChild(menu);
+      this._contextMenu = menu;
+
+      // 菜单操作
+      menu.addEventListener('click', (ev) => {
+        const item = ev.target.closest('[data-action]');
+        if (!item) return;
+        const action = item.dataset.action;
+
+        switch (action) {
+          case 'close':
+            this.closeWindow(targetId);
+            break;
+          case 'closeOthers': {
+            const ids = [...this.windows.keys()].filter(id => id !== targetId);
+            ids.forEach(id => this.closeWindow(id));
+            break;
+          }
+          case 'closeRight': {
+            const ids = [...this.windows.keys()];
+            const idx = ids.indexOf(targetId);
+            if (idx >= 0) {
+              ids.slice(idx + 1).forEach(id => this.closeWindow(id));
+            }
+            break;
+          }
+          case 'closeLeft': {
+            const ids = [...this.windows.keys()];
+            const idx = ids.indexOf(targetId);
+            if (idx > 0) {
+              ids.slice(0, idx).forEach(id => this.closeWindow(id));
+            }
+            break;
+          }
+        }
+        this._hideTaskbarContextMenu();
+      });
+
+      // 点击外部关闭菜单
+      const closeHandler = (ev) => {
+        if (!menu.contains(ev.target)) {
+          this._hideTaskbarContextMenu();
+          document.removeEventListener('click', closeHandler);
+          document.removeEventListener('contextmenu', closeHandler);
+        }
+      };
+      setTimeout(() => {
+        document.addEventListener('click', closeHandler);
+        document.addEventListener('contextmenu', closeHandler);
+      }, 0);
+    }
+
+    _hideTaskbarContextMenu() {
+      if (this._contextMenu) {
+        this._contextMenu.remove();
+        this._contextMenu = null;
+      }
+    }
+
+    /**
+     * 切换标签页级别的静音状态
+     * 使用 chrome.tabs.update(tabId, {muted: true/false}) API
+     * 这是唯一能真正静音跨域 iframe 音频的方式
+     */
+    async _toggleTabMute() {
+      try {
+        // 获取当前窗口的活动标签页
+        const tabs = await chrome.tabs.query({ currentWindow: true, active: true });
+        if (tabs.length === 0) return;
+        const tabId = tabs[0].id;
+        this._tabMuted = !this._tabMuted;
+
+        // 设置标签页静音
+        await chrome.tabs.update(tabId, { muted: this._tabMuted });
+
+        // 更新按钮状态
+        this._updateMuteButton();
+      } catch (e) {
+        console.warn('MDI: Failed to toggle tab mute:', e);
+        this._tabMuted = !this._tabMuted; // 回滚
+      }
+    }
+
+    _updateMuteButton() {
+      if (!this._muteBtn) return;
+      if (this._tabMuted) {
+        this._muteBtn.innerHTML = SVG_MDI_MUTED;
+        this._muteBtn.title = i18n('mdiUnmute');
+        this._muteBtn.classList.add('mdi-taskbar-mute-btn--muted');
+      } else {
+        this._muteBtn.innerHTML = SVG_MDI_VOLUME;
+        this._muteBtn.title = i18n('mdiMute');
+        this._muteBtn.classList.remove('mdi-taskbar-mute-btn--muted');
+      }
+    }
+
+    /**
+     * 重建 iframe（用于刷新窗口）。
+     * 移除旧 iframe 后创建新的，确保 load 事件正确触发。
+     */
+    _rebuildIframe(winEl, windowId) {
+      const data = this.windows.get(windowId);
+      if (!data) return;
+
+      const body = winEl.querySelector('.mdi-window-body');
+      const oldIframe = winEl.querySelector('.mdi-window-iframe');
+      const loading = winEl.querySelector('.mdi-window-loading');
+      const fallback = winEl.querySelector('.mdi-window-fallback');
+      if (!body || !oldIframe) return;
+
+      // 重置加载状态
+      data._iframeLoaded = false;
+      if (data._loadTimeout) {
+        clearTimeout(data._loadTimeout);
+        data._loadTimeout = null;
+      }
+
+      // 显示 loading
+      if (loading) loading.style.display = '';
+      if (fallback) fallback.classList.remove('mdi-window-fallback--visible');
+
+      // 移除旧 iframe
+      oldIframe.remove();
+
+      // 创建新 iframe
+      const newIframe = document.createElement('iframe');
+      newIframe.className = 'mdi-window-iframe';
+      newIframe.sandbox.add('allow-same-origin', 'allow-scripts', 'allow-forms', 'allow-popups', 'allow-popups-to-escape-sandbox');
+      newIframe.referrerPolicy = 'no-referrer';
+      body.appendChild(newIframe);
+
+      // 绑定 load/error 事件
+      newIframe.addEventListener('load', () => {
+        if (data._iframeLoaded) return;
+        data._iframeLoaded = true;
+        if (data._loadTimeout) { clearTimeout(data._loadTimeout); data._loadTimeout = null; }
+        if (loading) loading.style.display = 'none';
+      });
+
+      newIframe.addEventListener('error', () => {
+        if (data._iframeLoaded) return;
+        data._iframeLoaded = true;
+        if (data._loadTimeout) { clearTimeout(data._loadTimeout); data._loadTimeout = null; }
+        if (loading) loading.style.display = 'none';
+        if (fallback) fallback.classList.add('mdi-window-fallback--visible');
+        newIframe.style.display = 'none';
+      });
+
+      // 启动加载超时
+      data._loadTimeout = setTimeout(() => {
+        if (!data._iframeLoaded) {
+          data._iframeLoaded = true;
+          try {
+            const doc = newIframe.contentDocument;
+            if (doc && doc.body && doc.body.innerHTML.length > 0) {
+              if (loading) loading.style.display = 'none';
+              return;
+            }
+          } catch (err) {
+            if (loading) loading.style.display = 'none';
+            return;
+          }
+          if (loading) loading.style.display = 'none';
+          if (fallback) fallback.classList.add('mdi-window-fallback--visible');
+          newIframe.style.display = 'none';
+        }
+      }, this.opts.iframeLoadTimeout);
+
+      // 延迟设置 src
+      setTimeout(() => { newIframe.src = data.url; }, 50);
     }
   }
 
