@@ -557,6 +557,23 @@ body {
   color: var(--text-tertiary);
 }
 
+.about-github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+  margin-top: var(--space-lg);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.about-github-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 /* ===== Toast ===== */
 .toast-container {
   position: fixed;
