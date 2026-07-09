@@ -1265,6 +1265,16 @@ body.theme-dark .conflict-details .conflict-item kbd {
   font-weight: 600;
 }
 
+/* RSS 刷新按钮旋转动画 */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
 .review-list {
   display: flex;
   flex-direction: column;

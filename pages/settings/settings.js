@@ -36,6 +36,16 @@ const shortcutConflicts = document.getElementById('shortcutConflicts');
 const conflictDetails = document.getElementById('conflictDetails');
 const openShortcutsPageLink = document.getElementById('openShortcutsPageLink');
 
+// ===== RSS 订阅设置 DOM 引用 =====
+const rssPollIntervalSelect = document.getElementById('rssPollIntervalSelect');
+const rssMaxItemsSelect = document.getElementById('rssMaxItemsSelect');
+const rssDefaultFolderSelect = document.getElementById('rssDefaultFolderSelect');
+const rssAutoDiscoverToggle = document.getElementById('rssAutoDiscoverToggle');
+const rssNotifyNewToggle = document.getElementById('rssNotifyNewToggle');
+const rssRefreshAllBtn = document.getElementById('rssRefreshAllBtn');
+const rssLastUpdatedDesc = document.getElementById('rssLastUpdatedDesc');
+const rssUnreadBadge = document.getElementById('rssUnreadBadge');
+
 // ===== 智能标签规则 DOM 引用 =====
 const domainRuleDomains = document.getElementById('domainRuleDomains');
 const domainRuleTag = document.getElementById('domainRuleTag');
@@ -307,6 +317,120 @@ async function refreshPreviewCacheStats() {
 
 async function savePreviewSetting(patch) {
   await chrome.runtime.sendMessage({ action: 'updatePreviewSettings', patch });
+}
+
+// ===== RSS 订阅设置 =====
+// 扁平化书签文件夹树，返回 [{ id, title, depth }]（仅文件夹节点）
+function flattenBookmarkFolders(nodes, depth = 0, out = []) {
+  for (const n of nodes || []) {
+    if (n.children !== undefined) {
+      out.push({ id: n.id, title: n.title || '', depth });
+      if (n.children && n.children.length) {
+        flattenBookmarkFolders(n.children, depth + 1, out);
+      }
+    }
+  }
+  return out;
+}
+
+// 填充默认书签文件夹下拉
+async function populateRssFolderSelect(selectedId = null) {
+  if (!rssDefaultFolderSelect) return;
+  try {
+    const tree = await chrome.bookmarks.getTree();
+    const folders = flattenBookmarkFolders(tree);
+    // 保留首项 "— None —"
+    rssDefaultFolderSelect.innerHTML = '';
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.setAttribute('data-i18n', 'rssDefaultFolderNone');
+    noneOpt.textContent = i18n('rssDefaultFolderNone') || '— None —';
+    rssDefaultFolderSelect.appendChild(noneOpt);
+    for (const f of folders) {
+      // 跳过根节点（id 为 '0'），其本身无意义
+      if (f.id === '0') continue;
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      const indent = '\u00A0\u00A0'.repeat(f.depth);
+      opt.textContent = indent + (f.title || '(unnamed)');
+      rssDefaultFolderSelect.appendChild(opt);
+    }
+    rssDefaultFolderSelect.value = selectedId || '';
+  } catch (e) {
+    console.warn('populateRssFolderSelect failed:', e);
+  }
+}
+
+async function loadRssSettings() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'rssGetSettings' });
+    const s = (res && res.settings) || {};
+    rssPollIntervalSelect.value = String(s.pollIntervalMin ?? 30);
+    rssMaxItemsSelect.value = String(s.maxItemsPerFeed ?? 100);
+    rssAutoDiscoverToggle.checked = s.autoDiscover !== false;
+    rssNotifyNewToggle.checked = s.notifyNew !== false;
+    await populateRssFolderSelect(s.defaultFolderId || null);
+    await refreshRssLastUpdated();
+    await refreshRssUnreadBadge();
+  } catch (e) {
+    rssPollIntervalSelect.value = '30';
+    rssMaxItemsSelect.value = '100';
+    rssAutoDiscoverToggle.checked = true;
+    rssNotifyNewToggle.checked = true;
+    await populateRssFolderSelect(null);
+  }
+}
+
+async function saveRssSetting(patch) {
+  await chrome.runtime.sendMessage({ action: 'rssSetSettings', patch });
+}
+
+// 刷新"最后更新"文本
+async function refreshRssLastUpdated() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'rssGetFeeds' });
+    const feeds = (res && res.feeds) || [];
+    if (feeds.length === 0) {
+      rssLastUpdatedDesc.textContent = i18n('rssNoFeeds') || 'No subscriptions';
+      return;
+    }
+    let latest = 0;
+    for (const f of feeds) {
+      if (f.lastFetched && f.lastFetched > latest) latest = f.lastFetched;
+    }
+    if (latest === 0) {
+      rssLastUpdatedDesc.textContent = i18n('rssNever') || 'Never';
+    } else {
+      const d = new Date(latest);
+      const ts = d.toLocaleString();
+      rssLastUpdatedDesc.textContent = (i18n('rssLastUpdated') || 'Last updated: $1').replace('$1', ts);
+    }
+  } catch {
+    rssLastUpdatedDesc.textContent = '—';
+  }
+}
+
+// 刷新导航未读徽标
+async function refreshRssUnreadBadge() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'rssGetFeeds' });
+    const feeds = (res && res.feeds) || [];
+    if (feeds.length === 0) {
+      rssUnreadBadge.style.display = 'none';
+      return;
+    }
+    const itemsRes = await chrome.runtime.sendMessage({ action: 'rssGetItems', all: true });
+    const items = (itemsRes && itemsRes.items) || [];
+    const unread = items.filter(i => !i.read).length;
+    if (unread > 0) {
+      rssUnreadBadge.textContent = unread > 99 ? '99+' : String(unread);
+      rssUnreadBadge.style.display = '';
+    } else {
+      rssUnreadBadge.style.display = 'none';
+    }
+  } catch {
+    rssUnreadBadge.style.display = 'none';
+  }
 }
 
 // 用于在自定义和内置 provider 之间切换时临时保留字段值
@@ -861,6 +985,60 @@ mdiWindowEnabledToggle.addEventListener('change', async (e) => {
   showToast(i18n('settingsSaved'), 'success');
 });
 
+// ===== RSS 订阅设置事件绑定 =====
+rssPollIntervalSelect.addEventListener('change', async (e) => {
+  const v = parseInt(e.target.value, 10);
+  await saveRssSetting({ pollIntervalMin: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+rssMaxItemsSelect.addEventListener('change', async (e) => {
+  const v = parseInt(e.target.value, 10);
+  await saveRssSetting({ maxItemsPerFeed: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+rssDefaultFolderSelect.addEventListener('change', async (e) => {
+  const v = e.target.value || null;
+  await saveRssSetting({ defaultFolderId: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+rssAutoDiscoverToggle.addEventListener('change', async (e) => {
+  await saveRssSetting({ autoDiscover: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+rssNotifyNewToggle.addEventListener('change', async (e) => {
+  await saveRssSetting({ notifyNew: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+rssRefreshAllBtn.addEventListener('click', async () => {
+  rssRefreshAllBtn.disabled = true;
+  const original = rssRefreshAllBtn.innerHTML;
+  try {
+    rssRefreshAllBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinning"><polyline points="23 4 23 10 17 10"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/></svg><span>' + (i18n('rssRefreshing') || 'Refreshing...') + '</span>';
+    await chrome.runtime.sendMessage({ action: 'rssRefreshAll' });
+    showToast(i18n('rssRefreshAllDone') || 'Refreshed', 'success');
+    await refreshRssLastUpdated();
+    await refreshRssUnreadBadge();
+  } catch (e) {
+    showToast(i18n('rssRefreshFailed') || 'Refresh failed', 'error');
+  } finally {
+    rssRefreshAllBtn.disabled = false;
+    rssRefreshAllBtn.innerHTML = original;
+  }
+});
+
+// 监听 RSS 数据变化（跨窗口同步）
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'rssDataChanged' || message.action === 'rssUnreadChanged') {
+    refreshRssLastUpdated();
+    refreshRssUnreadBadge();
+  }
+});
+
 // ===== AI 辅助分类事件绑定 =====
 if (aiEnabledToggle) {
   aiEnabledToggle.addEventListener('change', onAIEnabledToggle);
@@ -1277,6 +1455,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (changes.ai_classifier_logs) {
       renderAILogs();
     }
+    // RSS 订阅数据变化：刷新最后更新时间与未读徽标
+    if (changes.rss_feeds || changes.rss_settings) {
+      refreshRssLastUpdated();
+      refreshRssUnreadBadge();
+    }
+    if (changes.rss_settings) {
+      // 设置可能在其他窗口被改动，重新加载本地 UI 状态
+      loadRssSettings();
+    }
+    // items 分片键变化（rss_items_<feedId>）触发未读刷新
+    for (const key of Object.keys(changes)) {
+      if (key.startsWith('rss_items_')) {
+        refreshRssUnreadBadge();
+        break;
+      }
+    }
   }
 });
 
@@ -1292,6 +1486,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAISettings();
   loadActiveLearning();
   loadNotificationSettings();
+  loadRssSettings();
   renderAILogs();
 
   // 处理 URL hash，自动打开指定面板

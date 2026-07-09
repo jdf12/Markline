@@ -6,6 +6,7 @@
   <title>Markline</title>
   <link rel="stylesheet" href="standalone.css">
   <link rel="stylesheet" href="mdi-manager.css">
+  <link rel="stylesheet" href="feed-view.css">
 </head>
 <body class="standalone-mode">
   <!-- 顶部工具栏 -->
@@ -23,7 +24,6 @@
         <polyline points="12 6 12 12 16 14"/>
       </svg>
       <span class="sa-app-name">Markline</span>
-      <span class="sa-count-chip" id="saBookmarkCount">0</span>
     </div>
     <div class="sa-search-wrap">
       <svg class="sa-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -114,40 +114,85 @@
     <div class="sa-body-main">
     <!-- 侧栏 -->
     <aside class="sa-sidebar" id="saSidebar">
-      <div class="sa-sidebar-section">
-        <div class="sa-sidebar-section-header">
-          <span class="sa-sidebar-section-title" data-i18n="folderTree">文件夹</span>
-          <div class="sa-sidebar-section-actions">
-            <button id="saCollapseAllBtn" class="sa-sidebar-action" data-i18n-title="collapseAll">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="4 14 10 14 10 20"/>
-                <polyline points="20 10 14 10 14 4"/>
-                <line x1="14" y1="10" x2="21" y2="3"/>
-                <line x1="3" y1="21" x2="10" y2="14"/>
-              </svg>
-            </button>
-            <button id="saExpandAllBtn" class="sa-sidebar-action" data-i18n-title="expandAll">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="15 3 21 3 21 9"/>
-                <polyline points="9 21 3 21 3 15"/>
-                <line x1="21" y1="3" x2="14" y2="10"/>
-                <line x1="3" y1="21" x2="10" y2="14"/>
-              </svg>
+      <!-- 侧栏顶部：书签/RSS 切换 -->
+      <div class="sa-sidebar-tabs" id="saSidebarTabs">
+        <button class="sa-sidebar-tab active" data-tab="bookmarks">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span data-i18n="bookmarksTab">书签</span>
+          <span class="sa-tab-badge" id="saBookmarkCount">0</span>
+        </button>
+        <button class="sa-sidebar-tab" data-tab="rss">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 11a9 9 0 0 1 9 9"/>
+            <path d="M4 4a16 16 0 0 1 16 16"/>
+            <circle cx="5" cy="19" r="1"/>
+          </svg>
+          <span data-i18n="rssFeeds">RSS订阅</span>
+          <span class="sa-tab-badge" id="saRssUnreadCount" style="display:none;">0</span>
+        </button>
+      </div>
+
+      <!-- 书签面板：文件夹树 + 标签筛选 -->
+      <div class="sa-sidebar-panel" id="saSidebarBookmarks">
+        <div class="sa-sidebar-section">
+          <div class="sa-sidebar-section-header">
+            <span class="sa-sidebar-section-title" data-i18n="folderTree">文件夹</span>
+            <div class="sa-sidebar-section-actions">
+              <button id="saCollapseAllBtn" class="sa-sidebar-action" data-i18n-title="collapseAll">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="4 14 10 14 10 20"/>
+                  <polyline points="20 10 14 10 14 4"/>
+                  <line x1="14" y1="10" x2="21" y2="3"/>
+                  <line x1="3" y1="21" x2="10" y2="14"/>
+                </svg>
+              </button>
+              <button id="saExpandAllBtn" class="sa-sidebar-action" data-i18n-title="expandAll">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 3 21 3 21 9"/>
+                  <polyline points="9 21 3 21 3 15"/>
+                  <line x1="21" y1="3" x2="14" y2="10"/>
+                  <line x1="3" y1="21" x2="10" y2="14"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="saFolderTree" class="sa-folder-tree"></div>
+        </div>
+        <div class="sa-sidebar-divider"></div>
+        <div class="sa-sidebar-section">
+          <div class="sa-sidebar-section-header">
+            <span class="sa-sidebar-section-title" data-i18n="tagFilter">标签筛选</span>
+          </div>
+          <div id="saTagFilter" class="sa-tag-filter">
+            <button class="sa-tag-chip active" data-tag="__all__">
+              <span class="sa-tag-chip-label" data-i18n="tagAll">全部</span>
+              <span class="sa-tag-chip-count" id="saTagAllCount">0</span>
             </button>
           </div>
         </div>
-        <div id="saFolderTree" class="sa-folder-tree"></div>
       </div>
-      <div class="sa-sidebar-divider"></div>
-      <div class="sa-sidebar-section">
-        <div class="sa-sidebar-section-header">
-          <span class="sa-sidebar-section-title" data-i18n="tagFilter">标签筛选</span>
-        </div>
-        <div id="saTagFilter" class="sa-tag-filter">
-          <button class="sa-tag-chip active" data-tag="__all__">
-            <span class="sa-tag-chip-label" data-i18n="tagAll">全部</span>
-            <span class="sa-tag-chip-count" id="saTagAllCount">0</span>
-          </button>
+
+      <!-- RSS 面板：订阅列表 -->
+      <div class="sa-sidebar-panel" id="saSidebarRss" style="display:none;">
+        <div class="sa-sidebar-section sa-sidebar-section--rss">
+          <div class="sa-sidebar-section-header">
+            <span class="sa-sidebar-section-title" data-i18n="rssFeeds">RSS 订阅</span>
+            <div class="sa-sidebar-section-actions">
+              <button id="saRssAddBtn" class="sa-sidebar-action" data-i18n-title="rssAddFeed">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+              <button id="saRssRefreshAllBtn" class="sa-sidebar-action" data-i18n-title="rssRefreshAll">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="saRssFeedList" class="sa-rss-feed-list"></div>
         </div>
       </div>
     </aside>
@@ -163,6 +208,8 @@
       <div id="saGridView" class="sa-view sa-view--grid" style="display:none;"></div>
       <!-- 列表视图 -->
       <div id="saListView" class="sa-view sa-view--list" style="display:none;"></div>
+      <!-- RSS 订阅视图 -->
+      <div id="saFeedView" class="sa-view sa-view--feed" style="display:none;"></div>
 
       <!-- 加载状态 -->
       <div id="saLoading" class="sa-state-view">
@@ -298,6 +345,7 @@
   <script src="../../shared/smart-tagger.js"></script>
   <script src="../../background/vendor/Readability.js"></script>
   <script src="mdi-manager.js"></script>
+  <script src="feed-view.js"></script>
   <script src="standalone.js"></script>
 </body>
 </html>

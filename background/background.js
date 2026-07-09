@@ -7,6 +7,12 @@ importScripts('../shared/smart-tagger.js');
 // 引入网页预览提取 (Mozilla Readability)
 importScripts('vendor/Readability.js');
 importScripts('preview-extractor.js');
+// 引入 RSS 订阅模块（解析层 / 存储层 / 拉取调度 / 通知 / 自动发现）
+importScripts('../shared/rss-parser.js');
+importScripts('../shared/feed-store.js');
+importScripts('feed-fetcher.js');
+importScripts('feed-notifier.js');
+importScripts('feed-discover.js');
 
 // ===== 正文内容提取 =====
 async function extractActiveTabContent(tabId, url) {
@@ -553,6 +559,104 @@ async function enrichClickCounts(bookmarks, concurrency = 5) {
   });
   return updated;
 }
+
+// ===== RSS 文章 → 书签 互通 =====
+// 将一篇 RSS 文章保存为书签，自动应用智能标签规则。
+// 供 rssSaveItemAsBookmark 消息处理器和 feed-fetcher 的自动书签功能共用。
+//
+// 参数：
+//   item   - FeedStore 中的文章对象（含 title, link, summary, contentSnippet 等）
+//   feed   - FeedStore 中的订阅源对象（含 folderId, autoBookmark 等）
+//   settings - FeedStore.getSettings() 返回的设置对象
+// 返回：{ success, bookmarkId?, error? }
+async function saveRssArticleAsBookmark(item, feed, settings) {
+  try {
+    if (!item || !item.link) return { success: false, error: 'no_url' };
+
+    // 1. 查重：同一 URL 已存在书签则跳过
+    try {
+      const existing = await chrome.bookmarks.search({ url: item.link });
+      if (existing && existing.length > 0) {
+        // 已存在书签，仅更新 item 的 bookmarkId 引用
+        if (feed) {
+          await FeedStore.setItemBookmark(item.id, feed.id, existing[0].id);
+        }
+        return { success: true, bookmarkId: existing[0].id, duplicated: true };
+      }
+    } catch { /* search 失败不阻塞，继续创建 */ }
+
+    // 2. 确定目标文件夹
+    let parentId = (feed && feed.folderId) || (settings && settings.defaultFolderId);
+    let folderName = '';
+    let folderPath = '';
+    if (!parentId) {
+      // 兜底：在书签栏创建 "RSS 收藏" 文件夹
+      const folder = await findOrCreateFolder('RSS 收藏');
+      if (folder) {
+        parentId = folder.id;
+        folderName = 'RSS 收藏';
+        folderPath = folder.path || '';
+      } else {
+        return { success: false, error: 'no_folder' };
+      }
+    } else {
+      // 读取文件夹名供智能标签使用
+      try {
+        const parent = await chrome.bookmarks.get(parentId);
+        if (parent && parent[0]) folderName = parent[0].title || '';
+      } catch { /* 忽略 */ }
+    }
+
+    // 3. 智能标签：构建临时 item 调用 autoTagBookmarkSync
+    let tagNames = [];
+    if (typeof autoTagBookmarkSync === 'function') {
+      const tempItem = {
+        url: item.link,
+        title: item.title || '',
+        domain: extractDomain(item.link),
+        folderName,
+        folderPath,
+        contentText: item.contentSnippet || item.summary || '',
+        metaDesc: item.summary || '',
+        excerpt: item.summary || ''
+      };
+      try {
+        const tags = autoTagBookmarkSync(tempItem);
+        tagNames = (tags || []).map(t => t.tag).filter(Boolean);
+      } catch { /* 标签失败不阻塞保存 */ }
+    }
+
+    // 4. 通过 pendingQuickBookmarks 将标签和文件夹信息传递给 onCreated → addSingleBookmark
+    pendingQuickBookmarks.set(item.link, {
+      tags: tagNames,
+      folderName,
+      folderPath,
+      ruleTags: tagNames,
+      contentText: item.contentSnippet || item.summary || '',
+      metaDesc: item.summary || '',
+      excerpt: item.summary || ''
+    });
+
+    // 5. 创建书签（触发 onCreated → addSingleBookmark 消费 pending）
+    const bm = await chrome.bookmarks.create({
+      parentId,
+      title: item.title || item.link,
+      url: item.link
+    });
+
+    // 6. 更新文章的 bookmarkId 引用
+    if (feed) {
+      await FeedStore.setItemBookmark(item.id, feed.id, bm.id);
+    }
+
+    return { success: true, bookmarkId: bm.id, tags: tagNames };
+  } catch (err) {
+    console.error('[RSS] saveRssArticleAsBookmark failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+// 暴露到全局，供 feed-fetcher.js 自动书签功能调用
+self.saveRssArticleAsBookmark = saveRssArticleAsBookmark;
 
 // ===== 消息监听 =====
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1336,6 +1440,215 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })();
       return true;
     }
+
+    // ===== RSS 订阅 =====
+    case 'rssGetFeeds': {
+      (async () => {
+        const feeds = await FeedStore.getAllFeeds();
+        sendResponse({ success: true, feeds });
+      })();
+      return true;
+    }
+
+    case 'rssGetFeedsWithUnread': {
+      (async () => {
+        const feeds = await FeedStore.getAllFeeds();
+        if (feeds.length === 0) {
+          sendResponse({ success: true, feeds: [], unreadCounts: {} });
+          return;
+        }
+        // 批量读取所有 items，避免 N+1 查询
+        const keys = feeds.map(f => FeedStore.KEYS.ITEMS_KEY_PREFIX + f.id);
+        const r = await chrome.storage.local.get(keys);
+        const unreadCounts = {};
+        for (const f of feeds) {
+          const items = r[FeedStore.KEYS.ITEMS_KEY_PREFIX + f.id] || [];
+          unreadCounts[f.id] = items.filter(i => !i.read).length;
+        }
+        sendResponse({ success: true, feeds, unreadCounts });
+      })();
+      return true;
+    }
+
+    case 'rssAddFeed': {
+      (async () => {
+        const { url, title, siteUrl, folderId, autoBookmark, notify } = message;
+        // 先抓取验证，避免存入无效源
+        const init = await FeedFetcher.fetchAndInit(url);
+        if (!init.success) {
+          sendResponse({ success: false, error: init.error });
+          return;
+        }
+        // 如果发生重定向，使用最终 URL 作为订阅地址（避免每次都走重定向）
+        const feedUrl = init.finalUrl || url;
+        const addResult = await FeedStore.addFeed({
+          url: feedUrl,
+          title: title || init.title || url,
+          siteUrl: siteUrl || init.siteUrl,
+          favicon: init.favicon || '',
+          folderId: folderId || null,
+          autoBookmark: !!autoBookmark,
+          notify: notify !== false
+        });
+        if (!addResult.success) {
+          sendResponse(addResult);
+          return;
+        }
+        // 直接写入首批条目，避免二次拉取
+        if (init._parsed && init._parsed.items) {
+          const settings = await FeedStore.getSettings();
+          await FeedStore.upsertItems(addResult.feed.id, init._parsed.items, settings.maxItemsPerFeed);
+          await FeedStore.updateFeed(addResult.feed.id, {
+            lastFetched: Date.now(),
+            etag: init.etag,
+            lastModified: init.lastModified
+          });
+        }
+        FeedNotifier.updateBadge();
+        // 先响应前端，不等 favicon
+        const feedResult = addResult.feed;
+        sendResponse({ success: true, feed: feedResult, itemCount: init.itemCount || 0 });
+        // favicon 异步补上（不阻塞订阅响应）
+        if (init._faviconPromise) {
+          init._faviconPromise.then(async (favicon) => {
+            if (favicon) {
+              await FeedStore.updateFeed(addResult.feed.id, { favicon });
+            }
+          }).catch(() => {});
+        }
+      })();
+      return true;
+    }
+
+    case 'rssRemoveFeed': {
+      (async () => {
+        const result = await FeedStore.removeFeed(message.feedId);
+        FeedNotifier.updateBadge();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssUpdateFeed': {
+      (async () => {
+        const result = await FeedStore.updateFeed(message.feedId, message.patch || {});
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssReorderFeeds': {
+      (async () => {
+        const result = await FeedStore.reorderFeeds(message.orderedIds || []);
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssRefreshFeed': {
+      (async () => {
+        const result = await FeedFetcher.refreshFeed(message.feedId);
+        FeedNotifier.updateBadge();
+        sendResponse(result || { success: true });
+      })();
+      return true;
+    }
+
+    case 'rssRefreshAll': {
+      (async () => {
+        const result = await FeedFetcher.refreshAll();
+        sendResponse({ success: true, result });
+      })();
+      return true;
+    }
+
+    case 'rssGetItems': {
+      (async () => {
+        const items = message.feedId
+          ? await FeedStore.getItems(message.feedId)
+          : await FeedStore.getAllItems();
+        sendResponse({ success: true, items });
+      })();
+      return true;
+    }
+
+    case 'rssSetItemRead': {
+      (async () => {
+        const result = await FeedStore.setItemRead(message.itemId, message.feedId, message.read);
+        FeedNotifier.updateBadge();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssMarkAllRead': {
+      (async () => {
+        const result = await FeedStore.markAllRead(message.feedId);
+        FeedNotifier.updateBadge();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssMarkAllFeedsRead': {
+      (async () => {
+        const result = await FeedStore.markAllFeedsRead();
+        FeedNotifier.updateBadge();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssSetItemStarred': {
+      (async () => {
+        const result = await FeedStore.setItemStarred(message.itemId, message.feedId, message.starred);
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    case 'rssGetSettings': {
+      (async () => {
+        const settings = await FeedStore.getSettings();
+        sendResponse({ success: true, settings });
+      })();
+      return true;
+    }
+
+    case 'rssSetSettings': {
+      (async () => {
+        await FeedStore.setSettings(message.patch || {});
+        // 轮询周期可能变更，重新调度
+        await FeedFetcher.reschedule();
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+
+    case 'rssDiscoverActive': {
+      (async () => {
+        const feeds = await FeedDiscover.discoverForActiveTab();
+        sendResponse({ success: true, feeds });
+      })();
+      return true;
+    }
+
+    case 'rssSaveItemAsBookmark': {
+      (async () => {
+        const { itemId, feedId } = message;
+        const items = await FeedStore.getItems(feedId);
+        const item = items.find((i) => i.id === itemId);
+        if (!item) {
+          sendResponse({ success: false, error: 'item_not_found' });
+          return;
+        }
+        const feed = await FeedStore.getFeed(feedId);
+        const settings = await FeedStore.getSettings();
+        const result = await saveRssArticleAsBookmark(item, feed, settings);
+        sendResponse(result);
+      })();
+      return true;
+    }
   }
 });
 
@@ -1676,6 +1989,16 @@ async function scheduleCheckerAlarm() {
 
 // 闹钟触发时执行后台检测
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  // RSS 订阅定时拉取
+  if (alarm.name === RSS_ALARM_NAME) {
+    try {
+      await FeedFetcher.pollAll();
+    } catch (err) {
+      console.warn('RSS poll failed:', err);
+    }
+    return;
+  }
+
   if (!alarm.name.startsWith(CHECKER_ALARM_PREFIX)) return;
 
   const settings = await getCheckSettings();
@@ -1795,6 +2118,14 @@ chrome.runtime.onInstalled.addListener(() => {
     preloadSmartTaggerCaches();
   }
 
+  // 初始化 RSS 订阅：调度定时拉取闹钟 + 刷新未读徽标
+  if (typeof FeedFetcher !== 'undefined' && FeedFetcher.init) {
+    FeedFetcher.init().catch((err) => console.warn('FeedFetcher init failed:', err));
+  }
+  if (typeof FeedNotifier !== 'undefined' && FeedNotifier.updateBadge) {
+    FeedNotifier.updateBadge();
+  }
+
   // 创建右键菜单
   chrome.contextMenus.create({
     id: 'bookmark-this-page',
@@ -1806,10 +2137,76 @@ chrome.runtime.onInstalled.addListener(() => {
     title: '移除当前页面书签',
     contexts: ['page']
   });
+  chrome.contextMenus.create({
+    id: 'subscribe-this-page',
+    title: '订阅此页面 (RSS)',
+    contexts: ['page']
+  });
 });
 
 // 右键菜单点击处理
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  // 订阅此页面：嗅探当前页 RSS 源并自动订阅
+  if (info.menuItemId === 'subscribe-this-page' && tab && tab.id) {
+    try {
+      const discovered = await FeedDiscover.discoverInTab(tab.id);
+      if (!discovered || discovered.length === 0) {
+        chrome.notifications?.create({
+          type: 'basic',
+          iconUrl: '../icons/icon48.png',
+          title: 'Markline',
+          message: '未发现可订阅的 RSS 源'
+        });
+        return;
+      }
+      const feedUrl = discovered[0].url;
+      const existing = await FeedStore.getFeedByUrl(feedUrl);
+      if (existing) {
+        chrome.notifications?.create({
+          type: 'basic',
+          iconUrl: '../icons/icon48.png',
+          title: 'Markline',
+          message: '已订阅过该源'
+        });
+        return;
+      }
+      const init = await FeedFetcher.fetchAndInit(feedUrl);
+      if (!init.success) {
+        chrome.notifications?.create({
+          type: 'basic',
+          iconUrl: '../icons/icon48.png',
+          title: 'Markline',
+          message: '订阅失败: ' + init.error
+        });
+        return;
+      }
+      const addResult = await FeedStore.addFeed({
+        url: feedUrl,
+        title: init.title || feedUrl,
+        siteUrl: init.siteUrl
+      });
+      if (addResult.success && init._parsed && init._parsed.items) {
+        const settings = await FeedStore.getSettings();
+        await FeedStore.upsertItems(addResult.feed.id, init._parsed.items, settings.maxItemsPerFeed);
+        await FeedStore.updateFeed(addResult.feed.id, {
+          lastFetched: Date.now(),
+          etag: init.etag,
+          lastModified: init.lastModified
+        });
+      }
+      FeedNotifier.updateBadge();
+      chrome.notifications?.create({
+        type: 'basic',
+        iconUrl: '../icons/icon48.png',
+        title: 'Markline',
+        message: `订阅成功: ${init.title || feedUrl}（${init.itemCount || 0} 篇）`
+      });
+    } catch (err) {
+      console.error('右键订阅失败:', err);
+    }
+    return;
+  }
+
   if (info.menuItemId === 'bookmark-this-page' && tab && tab.url) {
     // 复用一键收藏的智能标签 + 目录建议逻辑
     await handleQuickBookmark(tab);
@@ -1884,6 +2281,13 @@ chrome.runtime.onStartup.addListener(() => {
   // 预加载智能标签缓存（使 autoTagBookmarkSync 可同步运行）
   if (typeof preloadSmartTaggerCaches === 'function') {
     preloadSmartTaggerCaches();
+  }
+  // 初始化 RSS 订阅：恢复定时拉取闹钟 + 刷新未读徽标
+  if (typeof FeedFetcher !== 'undefined' && FeedFetcher.init) {
+    FeedFetcher.init().catch((err) => console.warn('FeedFetcher init failed:', err));
+  }
+  if (typeof FeedNotifier !== 'undefined' && FeedNotifier.updateBadge) {
+    FeedNotifier.updateBadge();
   }
 });
 

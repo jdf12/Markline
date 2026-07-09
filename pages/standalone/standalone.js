@@ -27,6 +27,12 @@ const saToastContainer = $('saToastContainer');
 const saStatusText = $('saStatusText');
 const saStatusFolder = $('saStatusFolder');
 
+// 侧栏 Tab 切换 DOM
+const saSidebarTabs = $('saSidebarTabs');
+const saSidebarBookmarks = $('saSidebarBookmarks');
+const saSidebarRss = $('saSidebarRss');
+const saRssUnreadCount = $('saRssUnreadCount');
+
 // 编辑弹窗
 const saEditModal = $('saEditModal');
 const saEditTitle = $('saEditTitle');
@@ -70,6 +76,7 @@ let duplicateIds = new Set();
 let bulkMode = false;
 let selectedIds = new Set();
 let dragState = null;
+let currentTab = 'bookmarks'; // 'bookmarks' | 'rss'
 
 // MDI 多窗口
 let mdiManager = null;
@@ -617,6 +624,10 @@ saFolderTree.addEventListener('click', (e) => {
 
   // 选中文件夹
   selectedFolderId = folderId || null;
+  // 如果当前在 RSS 视图，点击书签文件夹则切回书签视图
+  if (currentTab === 'rss') {
+    switchSidebarTab('bookmarks');
+  }
   renderFolderTree();
   filterBookmarks(saSearchInput.value);
   updateStatusBar();
@@ -998,6 +1009,10 @@ document.querySelectorAll('.sa-view-btn').forEach(btn => {
     document.querySelectorAll('.sa-view-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentViewMode = btn.dataset.view;
+    // 切换书签视图时，如果当前在 RSS 视图则切回
+    if (currentTab === 'rss') {
+      switchSidebarTab('bookmarks');
+    }
     filterBookmarks(saSearchInput.value);
   });
 });
@@ -1543,7 +1558,11 @@ let currentTheme = 'system';
 
 function loadTheme() {
   chrome.storage.local.get('theme', (data) => {
-    const theme = data.theme || 'system';
+    let theme = data.theme || 'light';
+    // 如果存储的是 'system'（旧版），根据系统偏好决定
+    if (theme === 'system') {
+      theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
     applyTheme(theme);
   });
 }
@@ -1562,11 +1581,10 @@ function updateThemeButtonIcon() {
 }
 
 function toggleTheme() {
-  // Cycle: system → light → dark → system
+  // 仅在 light ↔ dark 之间切换
   let next;
-  if (currentTheme === 'system') next = 'light';
-  else if (currentTheme === 'light') next = 'dark';
-  else next = 'system';
+  if (currentTheme === 'dark') next = 'light';
+  else next = 'dark';
   chrome.storage.local.set({ theme: next });
   applyTheme(next);
 }
@@ -2305,11 +2323,91 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// ===== 侧栏 Tab 切换 =====
+function switchSidebarTab(tabName) {
+  if (currentTab === tabName) return;
+  currentTab = tabName;
+
+  // 更新 Tab 按钮状态
+  if (saSidebarTabs) {
+    saSidebarTabs.querySelectorAll('.sa-sidebar-tab').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+  }
+
+  // 切换侧栏面板
+  if (saSidebarBookmarks) saSidebarBookmarks.style.display = tabName === 'bookmarks' ? '' : 'none';
+  if (saSidebarRss) saSidebarRss.style.display = tabName === 'rss' ? '' : 'none';
+
+  // 切换主区域内容
+  if (tabName === 'bookmarks') {
+    // 切回书签：隐藏 RSS 视图，恢复书签视图
+    if (window.FeedView && window.FeedView.isVisible()) {
+      const feedViewEl = document.getElementById('saFeedView');
+      if (feedViewEl) feedViewEl.style.display = 'none';
+    }
+    // 恢复书签视图
+    showBookmarkViews();
+    // 恢复工具栏书签专用元素
+    const viewSwitch = document.querySelector('.sa-view-switch');
+    if (viewSwitch) viewSwitch.style.display = '';
+    const sortBtn = document.getElementById('saSortBtn');
+    if (sortBtn) sortBtn.style.display = '';
+    const searchWrap = document.querySelector('.sa-search-wrap');
+    if (searchWrap) searchWrap.style.display = '';
+    if (saSyncBtn) saSyncBtn.style.display = '';
+    if (saPaletteBtn) saPaletteBtn.style.display = '';
+  } else {
+    // 切到 RSS：隐藏书签视图
+    hideBookmarkViews();
+    // 隐藏工具栏书签专用元素
+    const viewSwitch = document.querySelector('.sa-view-switch');
+    if (viewSwitch) viewSwitch.style.display = 'none';
+    const sortBtn = document.getElementById('saSortBtn');
+    if (sortBtn) sortBtn.style.display = 'none';
+    const searchWrap = document.querySelector('.sa-search-wrap');
+    if (searchWrap) searchWrap.style.display = 'none';
+    if (saSyncBtn) saSyncBtn.style.display = 'none';
+    if (saPaletteBtn) saPaletteBtn.style.display = 'none';
+    // 显示 RSS 视图
+    if (window.FeedView) {
+      window.FeedView.show('all');
+    }
+  }
+}
+
+// 隐藏所有书签视图容器
+function hideBookmarkViews() {
+  if (saTimelineView) saTimelineView.style.display = 'none';
+  if (saGridView) saGridView.style.display = 'none';
+  if (saListView) saListView.style.display = 'none';
+  if (saLoading) saLoading.style.display = 'none';
+  if (saEmpty) saEmpty.style.display = 'none';
+  if (saSearchEmpty) saSearchEmpty.style.display = 'none';
+}
+
+// 恢复书签视图（按当前视图模式）
+function showBookmarkViews() {
+  const target = currentViewMode === 'grid' ? saGridView
+    : currentViewMode === 'list' ? saListView
+    : saTimelineView;
+  if (target) target.style.display = '';
+}
+
 async function startApp() {
   loadTheme();
   await loadPreviewEnabled();
   await loadMdiWindowEnabled();
   initSidebarResize();
+
+  // 侧栏 Tab 切换事件
+  if (saSidebarTabs) {
+    saSidebarTabs.querySelectorAll('.sa-sidebar-tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        switchSidebarTab(btn.dataset.tab);
+      });
+    });
+  }
 
   // MDI 多窗口管理器初始化
   const mdiDesktopArea = document.getElementById('saMdiDesktopArea');
@@ -2333,6 +2431,19 @@ async function startApp() {
     console.error('Failed to initialize:', e);
     showToast(i18n('loadFailedRetry'), 'error');
   }
+
+  // 初始化 RSS 订阅视图
+  if (window.FeedView && typeof window.FeedView.init === 'function') {
+    window.FeedView.init().catch((e) => console.warn('FeedView init failed:', e));
+  }
+
+  // 处理 URL 参数：?view=feeds 直接打开订阅视图（来自通知点击）
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.get('view') === 'feeds' && window.FeedView) {
+      switchSidebarTab('rss');
+    }
+  } catch {}
 
   updateStatusBar();
 }

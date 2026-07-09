@@ -131,6 +131,17 @@
           </button>
         </li>
         <li>
+          <button class="nav-item" data-panel="rss">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 11a9 9 0 0 1 9 9"/>
+              <path d="M4 4a16 16 0 0 1 16 16"/>
+              <circle cx="5" cy="19" r="1"/>
+            </svg>
+            <span data-i18n="rssSettings">RSS</span>
+            <span id="rssUnreadBadge" class="nav-badge" style="display:none;">0</span>
+          </button>
+        </li>
+        <li>
           <button class="nav-item" data-panel="about">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
@@ -956,6 +967,95 @@
         <div class="stats-favorites-section" id="healthFavoritesSection" style="display:none;">
           <h3 class="stats-chart-title" data-i18n="statsFavoriteScores">Favorite Health Scores</h3>
           <div class="stats-favorites-list" id="healthFavoritesList"></div>
+        </div>
+      </div>
+
+      <!-- RSS 订阅 -->
+      <div class="panel-section" id="panel-rss">
+        <h2 class="panel-title" data-i18n="rssSettings">RSS Subscriptions</h2>
+        <div class="setting-desc tagrules-intro" data-i18n="rssSettingsDesc">Configure RSS feed polling, notifications and bookmark integration</div>
+        <div class="setting-card">
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssPollInterval">Poll Interval (minutes)</div>
+              <div class="setting-desc" data-i18n="rssPollIntervalDesc">How often to fetch new articles from subscriptions</div>
+            </div>
+            <div class="setting-control">
+              <select id="rssPollIntervalSelect" class="select-control compact">
+                <option value="10">10</option>
+                <option value="15">15</option>
+                <option value="30" selected>30</option>
+                <option value="60">60</option>
+                <option value="120">120</option>
+                <option value="240">240</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssMaxItems">Max items per feed</div>
+              <div class="setting-desc" data-i18n="rssMaxItemsDesc">Maximum number of articles retained per feed (oldest evicted first)</div>
+            </div>
+            <div class="setting-control">
+              <select id="rssMaxItemsSelect" class="select-control compact">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssDefaultFolder">Default bookmark folder</div>
+              <div class="setting-desc" data-i18n="rssDefaultFolderDesc">Where articles saved from RSS are stored</div>
+            </div>
+            <div class="setting-control">
+              <select id="rssDefaultFolderSelect" class="select-control">
+                <option value="" data-i18n="rssDefaultFolderNone">— None —</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssAutoDiscover">Auto-discover feeds</div>
+              <div class="setting-desc" data-i18n="rssAutoDiscoverDesc">Detect RSS feeds when visiting pages (for the context menu)</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="rssAutoDiscoverToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssNotifyNew">New article notifications</div>
+              <div class="setting-desc" data-i18n="rssNotifyNewDesc">Show a desktop notification when new articles arrive</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="rssNotifyNewToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssRefreshAll">Refresh All Now</div>
+              <div class="setting-desc" id="rssLastUpdatedDesc">—</div>
+            </div>
+            <div class="setting-control">
+              <button id="rssRefreshAllBtn" class="btn btn-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <polyline points="1 20 1 14 7 14"/>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                <span data-i18n="rssRefreshAll">Refresh All</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
