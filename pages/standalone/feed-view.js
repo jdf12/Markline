@@ -236,27 +236,30 @@
   // ===== 订阅源拖拽排序 =====
   let draggedFeedId = null;
 
-  // 根据拖拽源与目标 id，在 feeds 数组中重排（源移到目标位置前），
-  // 返回新的 id 序列；不修改 feeds，由调用方决定如何应用
-  function computeReorderedFeedIds(fromId, toId) {
+  // 根据拖拽源与目标 id，在 feeds 数组中重排，返回新的 id 序列；
+  // position: 'before' 插到目标之前 / 'after' 插到目标之后；不修改 feeds
+  function computeReorderedFeedIds(fromId, toId, position) {
     const ids = feeds.map(f => f.id);
     const fromIdx = ids.indexOf(fromId);
     const toIdx = ids.indexOf(toId);
     if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return null;
     ids.splice(fromIdx, 1);
-    // 插入到目标位置：向下拖时落到目标下方，向上拖时落到目标上方
-    const insertIdx = fromIdx < toIdx ? toIdx : toIdx;
+    // 源被移除后，目标的新索引（若源在目标之前，目标会前移一位）
+    const targetNewIdx = fromIdx < toIdx ? toIdx - 1 : toIdx;
+    const insertIdx = position === 'after' ? targetNewIdx + 1 : targetNewIdx;
     ids.splice(insertIdx, 0, fromId);
     return ids;
   }
 
-  async function applyFeedReorder(fromId, toId) {
-    const newIds = computeReorderedFeedIds(fromId, toId);
+  async function applyFeedReorder(fromId, toId, position) {
+    const newIds = computeReorderedFeedIds(fromId, toId, position);
     if (!newIds) return;
     // 本地立即重排 feeds，UI 即时响应
     const map = new Map(feeds.map(f => [f.id, f]));
     feeds = newIds.map(id => map.get(id)).filter(Boolean);
     renderFeedList();
+    // 全部订阅 / 已收藏视图（卡片网格）也按 feeds 顺序渲染，拖完即时刷新
+    if (currentView === 'all' || currentView === 'starred') renderCurrentView();
     // 持久化（失败时回滚由 storage.onChanged 触发的 scheduleLoad 修正）
     try {
       await send('rssReorderFeeds', { orderedIds: newIds });
@@ -295,7 +298,49 @@
       if (draggedFeedId && draggedFeedId !== feedId) {
         const fromId = draggedFeedId;
         draggedFeedId = null;
-        applyFeedReorder(fromId, feedId);
+        // 垂直列表：上半部分插到目标前，下半部分插到目标后
+        const rect = div.getBoundingClientRect();
+        const position = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+        applyFeedReorder(fromId, feedId, position);
+      }
+    });
+  }
+
+  // 卡片网格（全部订阅视图）拖拽：水平方向用左/右半区决定 before/after
+  function bindOverviewCardDrag(card, feedId) {
+    card.draggable = true;
+    card.addEventListener('dragstart', (e) => {
+      draggedFeedId = feedId;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', feedId); } catch { /* ignore */ }
+    });
+    card.addEventListener('dragend', () => {
+      draggedFeedId = null;
+      card.classList.remove('dragging');
+      card.classList.remove('drag-over-left', 'drag-over-right');
+    });
+    card.addEventListener('dragover', (e) => {
+      if (!draggedFeedId || draggedFeedId === feedId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = card.getBoundingClientRect();
+      const isRightHalf = e.clientX > rect.left + rect.width / 2;
+      card.classList.toggle('drag-over-right', isRightHalf);
+      card.classList.toggle('drag-over-left', !isRightHalf);
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over-left', 'drag-over-right');
+    });
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const rect = card.getBoundingClientRect();
+      const position = e.clientX > rect.left + rect.width / 2 ? 'after' : 'before';
+      card.classList.remove('drag-over-left', 'drag-over-right');
+      if (draggedFeedId && draggedFeedId !== feedId) {
+        const fromId = draggedFeedId;
+        draggedFeedId = null;
+        applyFeedReorder(fromId, feedId, position);
       }
     });
   }
@@ -639,14 +684,9 @@
       arr.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
     }
 
-    // 按最新文章时间排序 feeds（让有新内容的 feed 排前面）
-    const sortedFeeds = [...feeds].sort((a, b) => {
-      const aLatest = itemsByFeed.has(a.id) ? itemsByFeed.get(a.id)[0].publishedAt || 0 : 0;
-      const bLatest = itemsByFeed.has(b.id) ? itemsByFeed.get(b.id)[0].publishedAt || 0 : 0;
-      return bLatest - aLatest;
-    });
-
-    for (const feed of sortedFeeds) {
+    // 按 feeds 数组顺序渲染（即用户自定义的拖拽顺序，与侧栏一致），
+    // 让拖拽排序的结果在卡片网格中稳定生效
+    for (const feed of feeds) {
       const items = itemsByFeed.get(feed.id) || [];
       container.appendChild(buildFeedOverviewCard(feed, items));
     }
@@ -669,14 +709,10 @@
       arr.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
     }
 
-    // 按最新收藏文章时间排序 feeds
-    const sortedFeeds = [...feeds].filter(f => itemsByFeed.has(f.id)).sort((a, b) => {
-      const aLatest = itemsByFeed.get(a.id)[0].publishedAt || 0;
-      const bLatest = itemsByFeed.get(b.id)[0].publishedAt || 0;
-      return bLatest - aLatest;
-    });
-
-    for (const feed of sortedFeeds) {
+    // 按 feeds 数组顺序渲染（仅含有收藏文章的 feed），
+    // 与侧栏/全部订阅保持一致的拖拽顺序
+    for (const feed of feeds) {
+      if (!itemsByFeed.has(feed.id)) continue;
       const items = itemsByFeed.get(feed.id) || [];
       container.appendChild(buildFeedOverviewCard(feed, items));
     }
@@ -687,6 +723,9 @@
     const card = document.createElement('div');
     card.className = 'sa-feed-overview-card';
     card.dataset.feedId = feed.id;
+    // 全部订阅 / 已收藏视图下卡片均可拖拽排序
+    const isDraggable = currentView === 'all' || currentView === 'starred';
+    if (isDraggable) bindOverviewCardDrag(card, feed.id);
 
     const favicon = feed.favicon || (feed.siteUrl ? getFaviconForUrl(feed.siteUrl) : '');
     const unread = feedUnreadCounts.get(feed.id) || 0;
@@ -696,7 +735,7 @@
 
     // 卡片头部
     const faviconHtml = favicon
-      ? `<img class="sa-feed-overview-favicon" src="${esc(favicon)}" onerror="this.style.display='none'">`
+      ? `<img class="sa-feed-overview-favicon" src="${esc(favicon)}" draggable="false" onerror="this.style.display='none'">`
       : `<span class="sa-feed-overview-favicon-placeholder">${SVG_RSS}</span>`;
 
     const unreadHtml = unread > 0
@@ -704,12 +743,12 @@
       : '';
 
     // 头部操作按钮：刷新 + 取消订阅 + 编辑 + 加星
-    const refreshBtnHtml = `<button class="sa-feed-overview-action" data-act="refresh-feed" title="${esc(t('rssRefresh'))}">${SVG_REFRESH}</button>`;
-    const deleteBtnHtml = `<button class="sa-feed-overview-action danger" data-act="remove-feed" title="${esc(t('rssRemoveFeed'))}">${SVG_DELETE}</button>`;
+    const refreshBtnHtml = `<button class="sa-feed-overview-action" draggable="false" data-act="refresh-feed" title="${esc(t('rssRefresh'))}">${SVG_REFRESH}</button>`;
+    const deleteBtnHtml = `<button class="sa-feed-overview-action danger" draggable="false" data-act="remove-feed" title="${esc(t('rssRemoveFeed'))}">${SVG_DELETE}</button>`;
     const starBtnHtml = feed.starred
-      ? `<button class="sa-feed-overview-action starred" data-act="star-feed" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
-      : `<button class="sa-feed-overview-action" data-act="star-feed" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
-    const editBtnHtml = `<button class="sa-feed-overview-action" data-act="edit-feed" title="${esc(t('rssFeedSettings') || 'Edit')}">${SVG_EDIT}</button>`;
+      ? `<button class="sa-feed-overview-action starred" draggable="false" data-act="star-feed" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
+      : `<button class="sa-feed-overview-action" draggable="false" data-act="star-feed" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
+    const editBtnHtml = `<button class="sa-feed-overview-action" draggable="false" data-act="edit-feed" title="${esc(t('rssFeedSettings') || 'Edit')}">${SVG_EDIT}</button>`;
 
     // 文章预览行（含加星按钮）
     let itemsHtml = '';
@@ -717,8 +756,8 @@
       const titleClass = item.read ? 'read' : 'unread';
       const time = formatRelative(item.publishedAt);
       const itemStarHtml = item.starred
-        ? `<button class="sa-feed-overview-item-star starred" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
-        : `<button class="sa-feed-overview-item-star" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
+        ? `<button class="sa-feed-overview-item-star starred" draggable="false" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
+        : `<button class="sa-feed-overview-item-star" draggable="false" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
       itemsHtml += `
         <div class="sa-feed-overview-item ${titleClass}" data-item-id="${esc(item.id)}">
           <span class="sa-feed-overview-item-title"><span class="sa-feed-overview-item-title-text">${esc(item.title || t('untitled'))}</span></span>

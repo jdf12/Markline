@@ -650,6 +650,27 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
 }
 
+/* 卡片拖拽排序状态 */
+.sa-feed-overview-card[draggable="true"] {
+  cursor: grab;
+}
+
+.sa-feed-overview-card.dragging {
+  opacity: 0.4;
+}
+
+/* 拖到目标左半区 → 插到目标前（左侧高亮指示线） */
+.sa-feed-overview-card.drag-over-left {
+  border-color: var(--accent);
+  box-shadow: -3px 0 0 0 var(--accent), 0 2px 8px rgba(0, 0, 0, .06);
+}
+
+/* 拖到目标右半区 → 插到目标后（右侧高亮指示线） */
+.sa-feed-overview-card.drag-over-right {
+  border-color: var(--accent);
+  box-shadow: 3px 0 0 0 var(--accent), 0 2px 8px rgba(0, 0, 0, .06);
+}
+
 .sa-feed-overview-header {
   display: flex;
   align-items: center;
