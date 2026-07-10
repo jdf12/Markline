@@ -2,6 +2,7 @@
 // alarms 驱动的定时拉取调度
 // - ETag / Last-Modified 增量请求
 // - 失败退避（failCount 递增，由调度层跳过过频拉取）
+// - 直连失败时可选回退到 rss2json 公共代理（解决国内访问部分源超时）
 // - 解析后写入 FeedStore，返回新增条目供通知层使用
 //
 // 依赖：FeedStore, RssParser (通过 importScripts 注入)
@@ -115,7 +116,88 @@
     return null;
   }
 
+  // ===== 公共代理回退（直连失败时使用）=====
+  // 代理服务器代抓源站，不受扩展 host 权限/CORS/混合内容限制
+  // 适用于国内直连超时的源（如 Cloudflare 托管站点）
+  // 支持两种代理类型，按响应内容自动识别：
+  //   - rss2json 类型（返回 JSON，含 status/items 字段）
+  //   - raw 类型（返回原始 RSS/Atom XML，复用 RssParser 解析）
+  // 代理 URL 模板用 {url} 作占位符，替换为 encodeURIComponent 编码后的源 URL
+
+  // 将 rss2json 返回的 JSON 转换为 RssParser 的输出结构
+  // 字段对齐 shared/rss-parser.js 的 { title, siteUrl, description, items[] }
+  function _convertRss2Json(json, fallbackUrl) {
+    if (!json || json.status !== 'ok' || !Array.isArray(json.items)) return null;
+    const feed = json.feed || {};
+    const items = (json.items || []).map(it => {
+      const link = it.link || it.guid || '';
+      const pub = RssParser.parseDate(it.pubDate || it.pubdate || it.isoDate);
+      // rss2json 的 content/description/thumbnail 已抽取好，直接用
+      const summary = RssParser.stripTags(it.description || it.content || '').slice(0, 500);
+      const contentSnippet = RssParser.stripTags(it.content || it.description || '').slice(0, 1000);
+      return {
+        guid: it.guid || link || it.title || String(Math.random()),
+        title: RssParser.stripTags(it.title || ''),
+        link,
+        author: it.author || '',
+        publishedAt: pub,
+        summary,
+        contentSnippet,
+        imageUrl: it.thumbnail || (it.enclosure && it.enclosure.link) || ''
+      };
+    }).filter(it => it.title || it.link);
+    return {
+      title: RssParser.stripTags(feed.title || ''),
+      siteUrl: feed.link || fallbackUrl || '',
+      description: RssParser.stripTags(feed.description || ''),
+      items
+    };
+  }
+
+  // 通过代理抓取并解析。成功返回 { text, parsed, finalUrl, via:'proxy' }
+  // 失败抛错。注意：代理模式不返回 ETag/Last-Modified（代理通常不透传这些头）
+  async function _fetchViaProxy(feedUrl, proxyTemplate, options) {
+    if (!proxyTemplate || typeof proxyTemplate !== 'string' || !proxyTemplate.includes('{url}')) {
+      throw new Error('proxy_template_invalid');
+    }
+    const proxyUrl = proxyTemplate.replace('{url}', encodeURIComponent(feedUrl));
+    const controller = options.signal ? null : new AbortController();
+    const tid = controller ? setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS) : null;
+    try {
+      const resp = await fetch(proxyUrl, {
+        signal: controller ? controller.signal : options.signal,
+        redirect: 'follow',
+        credentials: 'omit'
+      });
+      if (!resp.ok) throw new Error('proxy HTTP ' + resp.status);
+      const text = await resp.text();
+      if (!text) throw new Error('proxy_empty_response');
+
+      // 自动识别 JSON（rss2json 类型）还是 XML（raw 类型）
+      let parsed = null;
+      const trimmed = text.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          const json = JSON.parse(trimmed);
+          parsed = _convertRss2Json(json, feedUrl);
+        } catch { /* 不是有效 JSON，降级当 XML 处理 */ }
+      }
+      if (!parsed) {
+        // 当作原始 RSS/Atom XML 解析（适用于 allorigins/corsproxy 等 raw 代理）
+        const ct = resp.headers.get('content-type') || '';
+        parsed = RssParser.parseFeed(text, ct);
+      }
+      if (!parsed) throw new Error('proxy_parse_failed');
+      if (!parsed.items || parsed.items.length === 0) throw new Error('empty_feed');
+      // text 设为空字符串表示无需二次解析
+      return { text: '', parsed, finalUrl: feedUrl, via: 'proxy' };
+    } finally {
+      if (tid) clearTimeout(tid);
+    }
+  }
+
   // 带重试的 fetch：原始 URL → HTTPS 升级 → GitHub raw 镜像
+  // 注意：本函数只做"直连"层面的回退；rss2json 代理回退由调用方按设置决定
   async function _fetchWithRetry(url, options) {
     try {
       const resp = await fetch(url, options);
@@ -146,8 +228,10 @@
   }
 
   // 拉取单个 feed。返回 { feedId, added, error?, failCount }
+  // 流程：直连（含 HTTPS 升级/GitHub 镜像回退）→ 直连失败且开启代理时走 rss2json 代理
   async function fetchOne(feed) {
     const settings = await FeedStore.getSettings();
+    const allowProxy = settings.proxyFallback !== false; // 默认开启
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -157,6 +241,7 @@
     if (feed.etag) headers['If-None-Match'] = feed.etag;
     if (feed.lastModified) headers['If-Modified-Since'] = feed.lastModified;
 
+    let directErr = null;
     try {
       const { resp, finalUrl } = await _fetchWithRetry(feed.url, {
         headers,
@@ -212,14 +297,46 @@
       return { feedId: feed.id, added, feedTitle: feed.title, feed };
     } catch (err) {
       clearTimeout(tid);
-      const failCount = (feed.failCount || 0) + 1;
-      await FeedStore.updateFeed(feed.id, { failCount, lastFetched: Date.now() });
-      // 识别超时/中断，给出更清晰的错误信息
-      const isTimeout = err.name === 'AbortError' || _isTransient(err);
-      const errMsg = isTimeout ? `timeout after ${FETCH_TIMEOUT_MS / 1000}s` : err.message;
-      console.warn('[RSS] fetch failed:', feed.url, errMsg);
-      return { feedId: feed.id, added: [], error: errMsg, failCount, feed };
+      directErr = err;
     }
+
+    // ===== 直连失败，尝试代理回退 =====
+    if (allowProxy) {
+      try {
+        const proxied = await _fetchViaProxy(feed.url, settings.proxyUrl, { signal: null });
+        // 代理成功：写回元信息（代理不返回 ETag/Last-Modified，置空避免下次条件请求误判）
+        const patch = {
+          lastFetched: Date.now(),
+          etag: null,
+          lastModified: null,
+          failCount: 0
+        };
+        if (!feed.title || feed.title === feed.url) {
+          patch.title = proxied.parsed.title || feed.title;
+        }
+        if (proxied.parsed.siteUrl && !feed.siteUrl) patch.siteUrl = proxied.parsed.siteUrl;
+        if (!feed.favicon) {
+          try {
+            const fav = await fetchFavicon(proxied.parsed.siteUrl || feed.url);
+            if (fav) patch.favicon = fav;
+          } catch { /* ignore */ }
+        }
+        await FeedStore.updateFeed(feed.id, patch);
+        const added = await FeedStore.upsertItems(feed.id, proxied.parsed.items, settings.maxItemsPerFeed);
+        console.info('[RSS] fetched via proxy:', feed.url);
+        return { feedId: feed.id, added, feedTitle: feed.title, feed, via: 'proxy' };
+      } catch (proxyErr) {
+        console.warn('[RSS] proxy also failed:', feed.url, proxyErr.message);
+      }
+    }
+
+    // 直连和代理都失败，记录失败计数
+    const failCount = (feed.failCount || 0) + 1;
+    await FeedStore.updateFeed(feed.id, { failCount, lastFetched: Date.now() });
+    const isTimeout = directErr.name === 'AbortError' || _isTransient(directErr);
+    const errMsg = isTimeout ? `timeout after ${FETCH_TIMEOUT_MS / 1000}s` : directErr.message;
+    console.warn('[RSS] fetch failed:', feed.url, errMsg);
+    return { feedId: feed.id, added: [], error: errMsg, failCount, feed };
   }
 
   // 拉取所有 feed。跳过连续失败且未到退避窗口的 feed。
@@ -279,9 +396,13 @@
   }
 
   // 首次添加 feed 时立即拉取一次，返回 feed 元信息
+  // 流程：直连 → 直连失败且开启代理时走 rss2json 代理
   async function fetchAndInit(feedUrl) {
+    const settings = await FeedStore.getSettings();
+    const allowProxy = settings.proxyFallback !== false; // 默认开启
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let directErr = null;
     try {
       const { resp, finalUrl } = await _fetchWithRetry(feedUrl, {
         signal: controller.signal,
@@ -314,15 +435,43 @@
       };
     } catch (err) {
       clearTimeout(tid);
-      // 提供更友好的错误分类
-      let error = err.message;
-      if (err.name === 'AbortError' || _isTransient(err)) {
-        error = 'network_timeout';
-      } else if (error.includes('HTTP ')) {
-        error = 'http_' + error.replace('HTTP ', '');
-      }
-      return { success: false, error };
+      directErr = err;
     }
+
+    // ===== 直连失败，尝试代理回退 =====
+    if (allowProxy) {
+      try {
+        const proxied = await _fetchViaProxy(feedUrl, settings.proxyUrl, { signal: null });
+        const faviconPromise = fetchFavicon(proxied.parsed.siteUrl || feedUrl).then(f => f).catch(() => '');
+        console.info('[RSS] fetchAndInit via proxy:', feedUrl);
+        return {
+          success: true,
+          title: proxied.parsed.title || '',
+          siteUrl: proxied.parsed.siteUrl || '',
+          favicon: '',
+          description: proxied.parsed.description || '',
+          // 代理不透传 ETag/Last-Modified
+          etag: null,
+          lastModified: null,
+          itemCount: proxied.parsed.items.length,
+          finalUrl: proxied.finalUrl,
+          _parsed: proxied.parsed,
+          _faviconPromise: faviconPromise,
+          via: 'proxy'
+        };
+      } catch (proxyErr) {
+        console.warn('[RSS] fetchAndInit proxy also failed:', feedUrl, proxyErr.message);
+      }
+    }
+
+    // 直连和代理都失败
+    let error = directErr.message;
+    if (directErr.name === 'AbortError' || _isTransient(directErr)) {
+      error = 'network_timeout';
+    } else if (error.includes('HTTP ')) {
+      error = 'http_' + error.replace('HTTP ', '');
+    }
+    return { success: false, error };
   }
 
   async function scheduleAlarm() {
@@ -344,6 +493,7 @@
   global.RSS_ALARM_NAME = RSS_ALARM_NAME;
   global.FeedFetcher = {
     fetchOne, pollAll, refreshFeed, refreshAll,
-    fetchAndInit, fetchFavicon, scheduleAlarm, reschedule, init
+    fetchAndInit, fetchFavicon, scheduleAlarm, reschedule, init,
+    testProxy: _fetchViaProxy
   };
 })(typeof self !== 'undefined' ? self : this);

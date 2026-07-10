@@ -1625,6 +1625,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    case 'rssTestProxy': {
+      // 测试代理可用性：用指定源 URL（默认阮一峰博客）经代理抓取，返回抓取结果摘要
+      (async () => {
+        const testUrl = message.testUrl || 'http://www.ruanyifeng.com/blog/atom.xml';
+        const proxyUrl = message.proxyUrl;
+        if (!proxyUrl || !proxyUrl.includes('{url}')) {
+          sendResponse({ success: false, error: 'proxy_template_invalid' });
+          return;
+        }
+        try {
+          const r = await FeedFetcher.testProxy(testUrl, proxyUrl, { signal: null });
+          sendResponse({
+            success: true,
+            itemCount: r.parsed.items.length,
+            feedTitle: r.parsed.title || ''
+          });
+        } catch (e) {
+          sendResponse({ success: false, error: e.message });
+        }
+      })();
+      return true;
+    }
+
     case 'rssDiscoverActive': {
       (async () => {
         const feeds = await FeedDiscover.discoverForActiveTab();

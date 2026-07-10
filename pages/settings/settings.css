@@ -282,6 +282,56 @@ body {
   flex-shrink: 0;
 }
 
+/* 全宽行：内容占满整行，用于含输入框/按钮组的设置项 */
+.setting-row--full {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.setting-row--full .setting-main {
+  flex: none;
+}
+
+/* 代理服务器地址配置 */
+.proxy-input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.proxy-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.proxy-test-result {
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: var(--space-xs);
+  min-height: 16px;
+  color: var(--text-tertiary);
+}
+
+.proxy-test-result--ok {
+  color: var(--success);
+}
+
+.proxy-test-result--fail {
+  color: var(--danger);
+}
+
+/* 代理回退关闭时灰显配置行 */
+.setting-row--full.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.setting-row--full.is-disabled .proxy-input-group {
+  pointer-events: none;
+}
+
 /* ===== Select Control ===== */
 .select-control {
   appearance: none;

@@ -16,7 +16,11 @@
     autoDiscover: true,         // 自动嗅探当前页 RSS
     notifyNew: true,            // 新文章桌面通知
     maxItemsPerFeed: 100,       // 单 feed 最多保留条数
-    defaultFolderId: null       // 新订阅默认挂载的书签文件夹
+    defaultFolderId: null,      // 新订阅默认挂载的书签文件夹
+    proxyFallback: true,        // 直连失败时回退到公共代理（解决部分源国内不可达）
+    // 代理 URL 模板，{url} 为源 URL 占位符（经 encodeURIComponent 编码）
+    // rss2json 类型（返回 JSON）与 raw 类型（返回原始 XML）均可，自动识别
+    proxyUrl: 'https://api.rss2json.com/v1/api.json?rss_url={url}'
   };
 
   // ===== Settings =====

@@ -1042,6 +1042,34 @@
           </div>
           <div class="setting-row">
             <div class="setting-main">
+              <div class="setting-label" data-i18n="rssProxyFallback">Proxy fallback</div>
+              <div class="setting-desc" data-i18n="rssProxyFallbackDesc">Fall back to a public proxy when direct fetch fails (for sources unreachable from your network)</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="rssProxyFallbackToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="setting-row setting-row--full" id="rssProxyUrlRow">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="rssProxyUrl">Proxy server URL</div>
+              <div class="setting-desc" data-i18n="rssProxyUrlDesc">Use {url} as the feed URL placeholder. Supports rss2json-style (JSON) and raw (XML) proxies</div>
+              <div class="proxy-input-group">
+                <input type="text" id="rssProxyUrlInput" class="tagrule-input proxy-url-input" placeholder="https://api.rss2json.com/v1/api.json?rss_url={url}">
+                <button id="rssProxyTestBtn" class="btn btn-secondary" type="button">
+                  <span data-i18n="rssProxyTest">Test</span>
+                </button>
+                <button id="rssProxySaveBtn" class="btn btn-primary" type="button">
+                  <span data-i18n="rssProxySave">Save</span>
+                </button>
+              </div>
+              <div id="rssProxyTestResult" class="proxy-test-result"></div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-main">
               <div class="setting-label" data-i18n="rssRefreshAll">Refresh All Now</div>
               <div class="setting-desc" id="rssLastUpdatedDesc">—</div>
             </div>

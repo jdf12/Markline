@@ -1312,6 +1312,48 @@
     });
 
     // 提交订阅
+    let subscribeProgressTimer = null;
+    let subscribeProgressStage = 0;
+    const PROGRESS_STAGES = [
+      { at: 0,    label: t('rssProgressFetch') || 'Fetching feed…' },
+      { at: 2500, label: t('rssProgressParse') || 'Parsing content…' },
+      { at: 6000, label: t('rssProgressLoad')  || 'Loading articles…' },
+      { at: 11000,label: t('rssProgressWait')  || 'Still working, please wait…' }
+    ];
+
+    function setSubscribeProgress(active) {
+      // 清理上一次的定时器
+      if (subscribeProgressTimer) {
+        clearInterval(subscribeProgressTimer);
+        subscribeProgressTimer = null;
+      }
+      if (!active) return;
+      subscribeProgressStage = 0;
+      let elapsed = 0;
+      // 每 250ms 推进进度条（到 95% 后保持，等待实际返回）
+      // 进度曲线：前 3s 较快到 60%，3-11s 缓慢到 90%，之后维持 95%
+      const tick = 250;
+      subscribeProgressTimer = setInterval(() => {
+        elapsed += tick;
+        let pct;
+        if (elapsed < 3000) pct = (elapsed / 3000) * 60;
+        else if (elapsed < 11000) pct = 60 + ((elapsed - 3000) / 8000) * 30;
+        else pct = Math.min(95, 90 + ((elapsed - 11000) / 20000) * 5);
+        const bar = overlay.querySelector('#saFeedAddProgress');
+        if (bar) bar.style.width = pct.toFixed(1) + '%';
+        // 阶段文案切换
+        const labelEl = overlay.querySelector('#saFeedAddProgressLabel');
+        let stage = subscribeProgressStage;
+        while (stage + 1 < PROGRESS_STAGES.length && elapsed >= PROGRESS_STAGES[stage + 1].at) {
+          stage++;
+        }
+        if (stage !== subscribeProgressStage) {
+          subscribeProgressStage = stage;
+          if (labelEl) labelEl.textContent = PROGRESS_STAGES[stage].label;
+        }
+      }, tick);
+    }
+
     async function doSubscribe() {
       const url = urlInput.value.trim();
       if (!url) {
@@ -1321,6 +1363,12 @@
       submitBtn.disabled = true;
       submitBtn.innerHTML = `<div class="sa-loading-dots"><span></span><span></span><span></span></div><span>${esc(t('rssSubscribing'))}</span>`;
       statusEl.className = 'sa-feed-add-status';
+      statusEl.innerHTML = `
+        <div class="sa-feed-add-progress-wrap">
+          <div class="sa-feed-add-progress-track"><div class="sa-feed-add-progress-bar" id="saFeedAddProgress" style="width:0%"></div></div>
+          <span class="sa-feed-add-progress-label" id="saFeedAddProgressLabel">${esc(PROGRESS_STAGES[0].label)}</span>
+        </div>`;
+      setSubscribeProgress(true);
 
       try {
         const resp = await send('rssAddFeed', {
@@ -1329,7 +1377,11 @@
           notify: overlay.querySelector('#saFeedAddNotify').checked,
           autoBookmark: overlay.querySelector('#saFeedAddAutoBookmark').checked
         });
+        setSubscribeProgress(false);
         if (resp && resp.success) {
+          // 进度条直接拉满再短暂停留，给用户完成感
+          const bar = overlay.querySelector('#saFeedAddProgress');
+          if (bar) bar.style.width = '100%';
           statusEl.className = 'sa-feed-add-status success';
           statusEl.textContent = t('rssSubscribeSuccess', [resp.feed.title || url, resp.itemCount || 0]);
           // storage.onChanged 会自动触发 scheduleLoad，无需手动调用
@@ -1359,6 +1411,7 @@
           submitBtn.innerHTML = `${SVG_ADD}<span>${esc(t('rssSubscribe'))}</span>`;
         }
       } catch (err) {
+        setSubscribeProgress(false);
         statusEl.className = 'sa-feed-add-status error';
         statusEl.textContent = t('rssSubscribeFailed');
         submitBtn.disabled = false;
@@ -1372,6 +1425,7 @@
     });
 
     function closeAddDialog() {
+      setSubscribeProgress(false);
       if (addDialogEl) {
         addDialogEl.remove();
         addDialogEl = null;

@@ -42,6 +42,12 @@ const rssMaxItemsSelect = document.getElementById('rssMaxItemsSelect');
 const rssDefaultFolderSelect = document.getElementById('rssDefaultFolderSelect');
 const rssAutoDiscoverToggle = document.getElementById('rssAutoDiscoverToggle');
 const rssNotifyNewToggle = document.getElementById('rssNotifyNewToggle');
+const rssProxyFallbackToggle = document.getElementById('rssProxyFallbackToggle');
+const rssProxyUrlRow = document.getElementById('rssProxyUrlRow');
+const rssProxyUrlInput = document.getElementById('rssProxyUrlInput');
+const rssProxyTestBtn = document.getElementById('rssProxyTestBtn');
+const rssProxySaveBtn = document.getElementById('rssProxySaveBtn');
+const rssProxyTestResult = document.getElementById('rssProxyTestResult');
 const rssRefreshAllBtn = document.getElementById('rssRefreshAllBtn');
 const rssLastUpdatedDesc = document.getElementById('rssLastUpdatedDesc');
 const rssUnreadBadge = document.getElementById('rssUnreadBadge');
@@ -369,6 +375,9 @@ async function loadRssSettings() {
     rssMaxItemsSelect.value = String(s.maxItemsPerFeed ?? 100);
     rssAutoDiscoverToggle.checked = s.autoDiscover !== false;
     rssNotifyNewToggle.checked = s.notifyNew !== false;
+    rssProxyFallbackToggle.checked = s.proxyFallback !== false;
+    rssProxyUrlInput.value = s.proxyUrl || '';
+    updateProxyRowState();
     await populateRssFolderSelect(s.defaultFolderId || null);
     await refreshRssLastUpdated();
     await refreshRssUnreadBadge();
@@ -377,8 +386,16 @@ async function loadRssSettings() {
     rssMaxItemsSelect.value = '100';
     rssAutoDiscoverToggle.checked = true;
     rssNotifyNewToggle.checked = true;
+    rssProxyFallbackToggle.checked = true;
+    rssProxyUrlInput.value = '';
+    updateProxyRowState();
     await populateRssFolderSelect(null);
   }
+}
+
+// 根据代理回退开关启用/禁用代理 URL 配置行
+function updateProxyRowState() {
+  rssProxyUrlRow.classList.toggle('is-disabled', !rssProxyFallbackToggle.checked);
 }
 
 async function saveRssSetting(patch) {
@@ -1012,6 +1029,62 @@ rssAutoDiscoverToggle.addEventListener('change', async (e) => {
 rssNotifyNewToggle.addEventListener('change', async (e) => {
   await saveRssSetting({ notifyNew: e.target.checked });
   showToast(i18n('settingsSaved'), 'success');
+});
+
+rssProxyFallbackToggle.addEventListener('change', async (e) => {
+  await saveRssSetting({ proxyFallback: e.target.checked });
+  updateProxyRowState();
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+// 保存代理 URL
+rssProxySaveBtn.addEventListener('click', async () => {
+  const v = (rssProxyUrlInput.value || '').trim();
+  if (!v) {
+    showToast(i18n('rssProxyUrlRequired') || 'Proxy URL is required', 'error');
+    return;
+  }
+  if (!v.includes('{url}')) {
+    showToast(i18n('rssProxyUrlPlaceholderMissing') || 'Proxy URL must contain {url} placeholder', 'error');
+    return;
+  }
+  await saveRssSetting({ proxyUrl: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+// 测试代理连通性（用阮一峰博客作测试源）
+rssProxyTestBtn.addEventListener('click', async () => {
+  const v = (rssProxyUrlInput.value || '').trim();
+  if (!v || !v.includes('{url}')) {
+    rssProxyTestResult.textContent = i18n('rssProxyUrlPlaceholderMissing') || 'Proxy URL must contain {url} placeholder';
+    rssProxyTestResult.className = 'proxy-test-result proxy-test-result--fail';
+    return;
+  }
+  const original = rssProxyTestBtn.innerHTML;
+  rssProxyTestBtn.innerHTML = '<span>' + (i18n('rssProxyTesting') || 'Testing...') + '</span>';
+  rssProxyTestBtn.disabled = true;
+  rssProxyTestResult.textContent = '';
+  rssProxyTestResult.className = 'proxy-test-result';
+  try {
+    const res = await chrome.runtime.sendMessage({
+      action: 'rssTestProxy',
+      proxyUrl: v
+    });
+    if (res && res.success) {
+      const okText = (i18n('rssProxyTestOk') || 'OK: $1 articles').replace('$1', res.itemCount || 0);
+      rssProxyTestResult.textContent = okText + ' — ' + (res.feedTitle || '');
+      rssProxyTestResult.className = 'proxy-test-result proxy-test-result--ok';
+    } else {
+      rssProxyTestResult.textContent = (i18n('rssProxyTestFail') || 'Failed: ') + (res?.error || 'unknown');
+      rssProxyTestResult.className = 'proxy-test-result proxy-test-result--fail';
+    }
+  } catch (e) {
+    rssProxyTestResult.textContent = (i18n('rssProxyTestFail') || 'Failed: ') + e.message;
+    rssProxyTestResult.className = 'proxy-test-result proxy-test-result--fail';
+  } finally {
+    rssProxyTestBtn.disabled = false;
+    rssProxyTestBtn.innerHTML = original;
+  }
 });
 
 rssRefreshAllBtn.addEventListener('click', async () => {
