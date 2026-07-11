@@ -52,6 +52,71 @@ const rssRefreshAllBtn = document.getElementById('rssRefreshAllBtn');
 const rssLastUpdatedDesc = document.getElementById('rssLastUpdatedDesc');
 const rssUnreadBadge = document.getElementById('rssUnreadBadge');
 
+// ===== 推送通知设置 DOM 引用 =====
+const pushEnabledToggle = document.getElementById('pushEnabledToggle');
+const pushStrategySelect = document.getElementById('pushStrategySelect');
+const pushMinIntervalInput = document.getElementById('pushMinIntervalInput');
+const pushDailyLimitInput = document.getElementById('pushDailyLimitInput');
+const pushQuietStartInput = document.getElementById('pushQuietStartInput');
+const pushQuietEndInput = document.getElementById('pushQuietEndInput');
+const pushEmailToInput = document.getElementById('pushEmailToInput');
+const pushFromInput = document.getElementById('pushFromInput');
+const pushProviderSelect = document.getElementById('pushProviderSelect');
+const pushSmtpUsernameInput = document.getElementById('pushSmtpUsernameInput');
+const pushSmtpPassInput = document.getElementById('pushSmtpPassInput');
+const pushSmtpPassStatus = document.getElementById('pushSmtpPassStatus');
+const pushSaveSmtpPassBtn = document.getElementById('pushSaveSmtpPassBtn');
+const pushClearSmtpPassBtn = document.getElementById('pushClearSmtpPassBtn');
+const pushSmtpHostInput = document.getElementById('pushSmtpHostInput');
+const pushSmtpPortInput = document.getElementById('pushSmtpPortInput');
+const pushSmtpTlsSelect = document.getElementById('pushSmtpTlsSelect');
+const pushApiKeyInput = document.getElementById('pushApiKeyInput');
+const pushApiKeyStatus = document.getElementById('pushApiKeyStatus');
+const pushSaveApiKeyBtn = document.getElementById('pushSaveApiKeyBtn');
+const pushClearApiKeyBtn = document.getElementById('pushClearApiKeyBtn');
+const pushHttpEndpointInput = document.getElementById('pushHttpEndpointInput');
+const pushHttpAuthTypeSelect = document.getElementById('pushHttpAuthTypeSelect');
+const pushTestBtn = document.getElementById('pushTestBtn');
+const pushProviderTypeRadios = document.querySelectorAll('input[name="pushProviderType"]');
+const pushBridgeStatusText = document.getElementById('pushBridgeStatusText');
+const pushBridgeCheckBtn = document.getElementById('pushBridgeCheckBtn');
+
+// 预置 SMTP/HTTP Provider 表（从 background 获取后缓存）
+let _smtpProviders = {};
+let _httpProviders = {};
+
+// 区分 HTTP/SMTP provider 值集合
+const _HTTP_PROVIDER_VALUES = new Set(['resend', 'sendgrid', 'mailgun', 'custom']);
+const _SMTP_PROVIDER_VALUES = new Set(['gmail', 'qq', '163', '126', 'outlook', 'aliyun', 'sina', 'sohu', '189', 'feishu', 'custom-smtp']);
+
+// 预置 HTTP provider 的固定鉴权方式（custom 才允许用户自定义）
+const _HTTP_PRESET_AUTH_TYPE = {
+  resend: 'bearer',
+  sendgrid: 'bearer',
+  mailgun: 'bearer'
+};
+
+// Provider → 发件人邮箱域名映射（用于 placeholder 动态回显）
+const _PROVIDER_DOMAIN = {
+  // HTTP API
+  resend:   'onboarding@resend.dev',
+  sendgrid: 'noreply@yourdomain.com',
+  mailgun:  'noreply@yourdomain.com',
+  custom:   'noreply@yourdomain.com',
+  // SMTP
+  gmail:        'your-email@gmail.com',
+  qq:           'your-email@qq.com',
+  '163':        'your-email@163.com',
+  '126':        'your-email@126.com',
+  outlook:      'your-email@outlook.com',
+  aliyun:       'your-email@qiye.aliyun.com',
+  sina:         'your-email@sina.com',
+  sohu:         'your-email@sohu.com',
+  '189':        'your-email@189.cn',
+  feishu:       'your-email@feishu.cn',
+  'custom-smtp': 'your-email@example.com'
+};
+
 // ===== 智能标签规则 DOM 引用 =====
 const domainRuleDomains = document.getElementById('domainRuleDomains');
 const domainRuleTag = document.getElementById('domainRuleTag');
@@ -1544,11 +1609,416 @@ chrome.storage.onChanged.addListener((changes, area) => {
         break;
       }
     }
+    // 推送设置变化：重新加载 UI
+    if (changes.push_settings) {
+      loadPushSettings();
+    }
+  }
+});
+
+// ===== 推送通知设置 =====
+
+// 根据当前 providerType 更新服务商下拉的可选项
+function updateProviderOptionsVisibility(providerType) {
+  const httpGroup = document.getElementById('pushProviderHttpGroup');
+  const smtpGroup = document.getElementById('pushProviderSmtpGroup');
+  if (!httpGroup || !smtpGroup) return;
+  // 仅显示当前类型的 optgroup，隐藏另一组
+  httpGroup.style.display = providerType === 'http' ? '' : 'none';
+  smtpGroup.style.display = providerType === 'smtp' ? '' : 'none';
+}
+
+// 测试按钮状态：未启用推送时置灰
+function updatePushTestButtonState() {
+  pushTestBtn.disabled = !pushEnabledToggle.checked;
+}
+
+// 根据当前 providerType 和 provider 更新字段显隐
+function updatePushFieldsVisibility() {
+  const providerType = document.querySelector('input[name="pushProviderType"]:checked')?.value || 'http';
+  const provider = pushProviderSelect.value;
+
+  const isHttp = providerType === 'http';
+  const isSmtp = providerType === 'smtp';
+  const isHttpCustom = isHttp && provider === 'custom';
+  const isSmtpCustom = isSmtp && provider === 'custom-smtp';
+
+  // 同步服务商下拉仅显示当前类型的选项
+  updateProviderOptionsVisibility(providerType);
+
+  // HTTP 模式字段
+  document.querySelectorAll('.push-http-only').forEach(el => {
+    el.classList.toggle('is-visible', isHttp);
+  });
+  document.querySelectorAll('.push-http-custom-only').forEach(el => {
+    el.classList.toggle('is-visible', isHttpCustom);
+  });
+
+  // SMTP 模式字段
+  document.querySelectorAll('.push-smtp-only').forEach(el => {
+    el.classList.toggle('is-visible', isSmtp);
+  });
+  document.querySelectorAll('.push-smtp-custom-only').forEach(el => {
+    el.classList.toggle('is-visible', isSmtpCustom);
+  });
+
+  // SMTP 模式下自动检测桥接程序状态
+  if (isSmtp) {
+    checkBridgeStatus();
+  }
+}
+
+// 切换 providerType 时，自动选对应组的第一个 provider
+function syncProviderByType(type) {
+  const currentValue = pushProviderSelect.value;
+  const currentIsHttp = _HTTP_PROVIDER_VALUES.has(currentValue);
+  if (type === 'http' && !currentIsHttp) {
+    pushProviderSelect.value = 'resend';
+  } else if (type === 'smtp' && currentIsHttp) {
+    pushProviderSelect.value = 'gmail';
+  }
+}
+
+// 根据当前 provider 更新发件人输入框 placeholder
+function updateFromPlaceholder() {
+  const providerType = document.querySelector('input[name="pushProviderType"]:checked')?.value || 'http';
+  const provider = pushProviderSelect.value;
+  const domain = _PROVIDER_DOMAIN[provider] || 'sender@example.com';
+
+  let placeholder;
+  if (providerType === 'http') {
+    // HTTP API 模式：显示带发件人名称的默认地址
+    placeholder = `Markline <${domain}>`;
+  } else {
+    // SMTP 模式：发件人通常是用户自己的邮箱
+    placeholder = domain;
+  }
+
+  pushFromInput.placeholder = placeholder;
+}
+
+// 判断 from 值是否是某个服务商的预设地址（非用户自定义）
+function isPresetFrom(value) {
+  if (!value) return false;
+  const v = value.trim();
+  for (const domain of Object.values(_PROVIDER_DOMAIN)) {
+    if (v === domain || v === `Markline <${domain}>`) return true;
+  }
+  return false;
+}
+
+// 检测本地 SMTP 桥接程序状态
+async function checkBridgeStatus() {
+  if (!pushBridgeStatusText) return;
+  pushBridgeStatusText.textContent = '检测中…';
+  pushBridgeStatusText.className = 'push-bridge-status push-bridge-status--checking';
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushBridgeHealth' });
+    if (res && res.running) {
+      pushBridgeStatusText.textContent = `运行中 v${res.version}`;
+      pushBridgeStatusText.className = 'push-bridge-status push-bridge-status--ok';
+    } else {
+      pushBridgeStatusText.textContent = '未运行';
+      pushBridgeStatusText.className = 'push-bridge-status push-bridge-status--error';
+    }
+  } catch {
+    pushBridgeStatusText.textContent = '检测失败';
+    pushBridgeStatusText.className = 'push-bridge-status push-bridge-status--error';
+  }
+}
+
+// 桥接检测按钮
+if (pushBridgeCheckBtn) {
+  pushBridgeCheckBtn.addEventListener('click', checkBridgeStatus);
+}
+
+// 切换服务商时，若 from 输入框当前值是某个服务商的默认地址（自动填入的），清空它以让新 placeholder 显示
+function clearFromIfPreset() {
+  if (isPresetFrom(pushFromInput.value)) {
+    pushFromInput.value = '';
+  }
+}
+
+// 刷新当前 provider 对应的 API Key / SMTP 授权码状态显示（不重载全部设置）
+async function refreshPushCredStatus() {
+  const provider = pushProviderSelect.value;
+  if (!provider) return;
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushGetCredStatus', provider });
+    if (!res || !res.success) return;
+    // API Key 状态
+    pushApiKeyInput.value = '';
+    if (res.hasApiKey) {
+      pushApiKeyStatus.textContent = i18n('pushApiKeySet') || '已配置';
+      pushApiKeyStatus.classList.add('is-set');
+    } else {
+      pushApiKeyStatus.textContent = i18n('pushApiKeyNotSet') || '未配置';
+      pushApiKeyStatus.classList.remove('is-set');
+    }
+    // SMTP 授权码状态
+    pushSmtpPassInput.value = '';
+    if (res.hasSmtpPass) {
+      pushSmtpPassStatus.textContent = i18n('pushApiKeySet') || '已配置';
+      pushSmtpPassStatus.classList.add('is-set');
+    } else {
+      pushSmtpPassStatus.textContent = i18n('pushApiKeyNotSet') || '未配置';
+      pushSmtpPassStatus.classList.remove('is-set');
+    }
+  } catch {}
+}
+
+async function loadPushSettings() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushGetSettings' });
+    const s = (res && res.settings) || {};
+    pushEnabledToggle.checked = !!s.enabled;
+    pushStrategySelect.value = s.strategy || 'batch30';
+    pushMinIntervalInput.value = s.minIntervalMin ?? 30;
+    pushDailyLimitInput.value = s.dailyLimit ?? 20;
+    pushQuietStartInput.value = s.quietHours?.start || '';
+    pushQuietEndInput.value = s.quietHours?.end || '';
+    pushEmailToInput.value = s.email?.to || '';
+    // 过滤掉预设地址：若是服务商默认地址则不恢复到输入框，让 placeholder 正常显示
+    const savedFrom = s.email?.from || '';
+    pushFromInput.value = isPresetFrom(savedFrom) ? '' : savedFrom;
+
+    // providerType 单选
+    const pt = s.email?.providerType || 'http';
+    document.querySelector(`input[name="pushProviderType"][value="${pt}"]`).checked = true;
+
+    // provider 下拉
+    const provider = s.email?.provider || (pt === 'smtp' ? 'gmail' : 'resend');
+    pushProviderSelect.value = provider;
+
+    // SMTP 字段
+    pushSmtpUsernameInput.value = s.email?.username || '';
+    pushSmtpHostInput.value = s.email?.smtpHost || '';
+    pushSmtpPortInput.value = s.email?.smtpPort || 465;
+    pushSmtpTlsSelect.value = s.email?.smtpTls || 'ssl';
+
+    // HTTP 字段
+    pushHttpEndpointInput.value = s.email?.endpoint || '';
+    // 预置 provider 强制使用固定 authType，custom 才用存储的 authType
+    const httpProvider = s.email?.provider || (pt === 'smtp' ? '' : 'resend');
+    const effectiveAuthType = (pt === 'http' && httpProvider !== 'custom')
+      ? (_HTTP_PRESET_AUTH_TYPE[httpProvider] || 'bearer')
+      : (s.email?.authType || 'bearer');
+    pushHttpAuthTypeSelect.value = effectiveAuthType;
+
+    // 凭证状态（API Key / SMTP 授权码）按当前 provider 刷新
+    await refreshPushCredStatus();
+
+    updatePushFieldsVisibility();
+    updatePushTestButtonState();
+    updateFromPlaceholder();
+  } catch {
+    pushEnabledToggle.checked = false;
+    pushStrategySelect.value = 'batch30';
+    document.querySelector('input[name="pushProviderType"][value="http"]').checked = true;
+    pushProviderSelect.value = 'resend';
+    updatePushFieldsVisibility();
+    updatePushTestButtonState();
+    updateFromPlaceholder();
+  }
+}
+
+// 保存非密钥字段
+async function savePushSettings(patch) {
+  await chrome.runtime.sendMessage({ action: 'pushSetSettings', patch });
+}
+
+pushEnabledToggle.addEventListener('change', () => {
+  savePushSettings({ enabled: pushEnabledToggle.checked });
+  updatePushTestButtonState();
+});
+pushStrategySelect.addEventListener('change', () => {
+  savePushSettings({ strategy: pushStrategySelect.value });
+});
+pushMinIntervalInput.addEventListener('change', () => {
+  const v = Math.max(0, Math.min(1440, parseInt(pushMinIntervalInput.value) || 0));
+  pushMinIntervalInput.value = v;
+  savePushSettings({ minIntervalMin: v });
+});
+pushDailyLimitInput.addEventListener('change', () => {
+  const v = Math.max(0, Math.min(100, parseInt(pushDailyLimitInput.value) || 0));
+  pushDailyLimitInput.value = v;
+  savePushSettings({ dailyLimit: v });
+});
+pushQuietStartInput.addEventListener('change', () => {
+  savePushSettings({ quietHours: { start: pushQuietStartInput.value, end: pushQuietEndInput.value } });
+});
+pushQuietEndInput.addEventListener('change', () => {
+  savePushSettings({ quietHours: { start: pushQuietStartInput.value, end: pushQuietEndInput.value } });
+});
+pushEmailToInput.addEventListener('change', () => {
+  savePushSettings({ email: { to: pushEmailToInput.value.trim() } });
+});
+pushFromInput.addEventListener('change', () => {
+  savePushSettings({ email: { from: pushFromInput.value.trim() } });
+});
+
+// 服务类型切换
+pushProviderTypeRadios.forEach(radio => {
+  radio.addEventListener('change', () => {
+    const type = radio.value;
+    syncProviderByType(type);
+    clearFromIfPreset();
+    updatePushFieldsVisibility();
+    updateFromPlaceholder();
+    savePushSettings({ email: { providerType: type, provider: pushProviderSelect.value } });
+    // 切换后刷新凭证状态显示
+    refreshPushCredStatus();
+  });
+});
+
+// 服务商切换
+pushProviderSelect.addEventListener('change', () => {
+  const provider = pushProviderSelect.value;
+  // 若 provider 不属于当前 type，自动切换 type
+  const isHttpProvider = _HTTP_PROVIDER_VALUES.has(provider);
+  const currentType = document.querySelector('input[name="pushProviderType"]:checked')?.value;
+  if (isHttpProvider && currentType !== 'http') {
+    document.querySelector('input[name="pushProviderType"][value="http"]').checked = true;
+  } else if (!isHttpProvider && currentType !== 'smtp') {
+    document.querySelector('input[name="pushProviderType"][value="smtp"]').checked = true;
+  }
+  clearFromIfPreset();
+  updatePushFieldsVisibility();
+  updateFromPlaceholder();
+  // 预置 provider 强制使用其固定 authType，避免残留的 custom authType 干扰
+  const patch = { email: { provider } };
+  if (isHttpProvider && provider !== 'custom') {
+    const presetAuthType = _HTTP_PRESET_AUTH_TYPE[provider];
+    if (presetAuthType) {
+      pushHttpAuthTypeSelect.value = presetAuthType;
+      patch.email.authType = presetAuthType;
+    }
+  }
+  savePushSettings(patch);
+  // 切换服务商后刷新凭证状态显示
+  refreshPushCredStatus();
+});
+
+// SMTP 账号/主机/端口/加密
+pushSmtpUsernameInput.addEventListener('change', () => {
+  savePushSettings({ email: { username: pushSmtpUsernameInput.value.trim() } });
+});
+pushSmtpHostInput.addEventListener('change', () => {
+  savePushSettings({ email: { smtpHost: pushSmtpHostInput.value.trim() } });
+});
+pushSmtpPortInput.addEventListener('change', () => {
+  const v = Math.max(1, Math.min(65535, parseInt(pushSmtpPortInput.value) || 465));
+  pushSmtpPortInput.value = v;
+  savePushSettings({ email: { smtpPort: v } });
+});
+pushSmtpTlsSelect.addEventListener('change', () => {
+  savePushSettings({ email: { smtpTls: pushSmtpTlsSelect.value } });
+});
+
+// SMTP 授权码保存/清除
+pushSaveSmtpPassBtn.addEventListener('click', async () => {
+  const pass = pushSmtpPassInput.value.trim();
+  if (!pass) {
+    showToast(i18n('pushSmtpPassEmpty') || '请输入授权码', 'error');
+    return;
+  }
+  const provider = pushProviderSelect.value;
+  pushSaveSmtpPassBtn.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushSetSmtpPass', password: pass, provider });
+    if (res && res.success) {
+      showToast(i18n('pushSmtpPassSaved') || 'SMTP 授权码已加密保存', 'success');
+      pushSmtpPassInput.value = '';
+      await refreshPushCredStatus();
+    } else {
+      showToast(i18n('pushApiKeySaveFailed') || '保存失败', 'error');
+    }
+  } catch {
+    showToast(i18n('pushApiKeySaveFailed') || '保存失败', 'error');
+  } finally {
+    pushSaveSmtpPassBtn.disabled = false;
+  }
+});
+
+pushClearSmtpPassBtn.addEventListener('click', async () => {
+  const provider = pushProviderSelect.value;
+  pushClearSmtpPassBtn.disabled = true;
+  try {
+    await chrome.runtime.sendMessage({ action: 'pushClearSmtpPass', provider });
+    showToast(i18n('pushSmtpPassCleared') || 'SMTP 授权码已清除', 'success');
+    await refreshPushCredStatus();
+  } finally {
+    pushClearSmtpPassBtn.disabled = false;
+  }
+});
+
+// HTTP API Key 保存/清除
+pushSaveApiKeyBtn.addEventListener('click', async () => {
+  const key = pushApiKeyInput.value.trim();
+  if (!key) {
+    showToast(i18n('pushApiKeyEmpty') || '请输入 API Key', 'error');
+    return;
+  }
+  const provider = pushProviderSelect.value;
+  pushSaveApiKeyBtn.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushSetApiKey', apiKey: key, provider });
+    if (res && res.success) {
+      showToast(i18n('pushApiKeySaved') || 'API Key 已加密保存', 'success');
+      pushApiKeyInput.value = '';
+      await refreshPushCredStatus();
+    } else {
+      showToast(i18n('pushApiKeySaveFailed') || '保存失败', 'error');
+    }
+  } catch {
+    showToast(i18n('pushApiKeySaveFailed') || '保存失败', 'error');
+  } finally {
+    pushSaveApiKeyBtn.disabled = false;
+  }
+});
+
+pushClearApiKeyBtn.addEventListener('click', async () => {
+  const provider = pushProviderSelect.value;
+  pushClearApiKeyBtn.disabled = true;
+  try {
+    await chrome.runtime.sendMessage({ action: 'pushClearApiKey', provider });
+    showToast(i18n('pushApiKeyCleared') || 'API Key 已清除', 'success');
+    await refreshPushCredStatus();
+  } finally {
+    pushClearApiKeyBtn.disabled = false;
+  }
+});
+
+// HTTP Custom 端点/鉴权
+pushHttpEndpointInput.addEventListener('change', () => {
+  savePushSettings({ email: { endpoint: pushHttpEndpointInput.value.trim() } });
+});
+pushHttpAuthTypeSelect.addEventListener('change', () => {
+  savePushSettings({ email: { authType: pushHttpAuthTypeSelect.value } });
+});
+
+pushTestBtn.addEventListener('click', async () => {
+  pushTestBtn.disabled = true;
+  const original = pushTestBtn.innerHTML;
+  pushTestBtn.innerHTML = '<span>' + (i18n('pushTesting') || 'Sending...') + '</span>';
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushSendTest' });
+    if (res && res.ok) {
+      showToast(i18n('pushTestSuccess') || '测试邮件已发送', 'success');
+    } else {
+      const err = (res && res.error) || 'unknown';
+      showToast((i18n('pushTestFailed') || '测试失败: $1').replace('$1', err), 'error');
+    }
+  } catch (e) {
+    showToast((i18n('pushTestFailed') || '测试失败: $1').replace('$1', e.message), 'error');
+  } finally {
+    pushTestBtn.disabled = false;
+    pushTestBtn.innerHTML = original;
   }
 });
 
 // ===== 初始化 =====
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   loadTheme();
   loadLanguage();
   loadCheckerSettings();
@@ -1560,6 +2030,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadActiveLearning();
   loadNotificationSettings();
   loadRssSettings();
+  // 等待推送设置加载完成，确保 placeholder 按存储值一次性正确显示
+  await loadPushSettings();
   renderAILogs();
 
   // 处理 URL hash，自动打开指定面板

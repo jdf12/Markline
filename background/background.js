@@ -13,6 +13,9 @@ importScripts('../shared/feed-store.js');
 importScripts('feed-fetcher.js');
 importScripts('feed-notifier.js');
 importScripts('feed-discover.js');
+// 引入推送通知模块（邮箱通知，API Key / SMTP 授权码加密存储；SMTP 通过本地桥接程序发送）
+importScripts('../shared/push-store.js');
+importScripts('push-channel.js');
 
 // ===== 正文内容提取 =====
 async function extractActiveTabContent(tabId, url) {
@@ -1668,6 +1671,163 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const feed = await FeedStore.getFeed(feedId);
         const settings = await FeedStore.getSettings();
         const result = await saveRssArticleAsBookmark(item, feed, settings);
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    // ===== 推送通知（邮箱）=====
+    case 'pushGetSettings': {
+      (async () => {
+        const settings = await PushStore.getSettings();
+        const provider = settings.email.provider || 'resend';
+        // 按当前 provider 读取对应的凭证状态
+        const hasKey = await PushStore.hasApiKeyForProvider(provider);
+        const hasSmtpPass = await PushStore.hasSmtpPassForProvider(provider);
+        // 不返回密文，只返回是否已配置
+        sendResponse({
+          success: true,
+          settings: {
+            ...settings,
+            email: {
+              providerType: settings.email.providerType,
+              provider: settings.email.provider,
+              to: settings.email.to,
+              from: settings.email.from,
+              username: settings.email.username,
+              endpoint: settings.email.endpoint,
+              authType: settings.email.authType,
+              smtpHost: settings.email.smtpHost,
+              smtpPort: settings.email.smtpPort,
+              smtpTls: settings.email.smtpTls,
+              hasApiKey: hasKey,
+              hasSmtpPass: hasSmtpPass
+            }
+          }
+        });
+      })();
+      return true;
+    }
+
+    case 'pushSetSettings': {
+      (async () => {
+        const { patch } = message;
+        // 密钥/授权码相关字段不接受外部明文，只允许更新普通配置字段
+        const safePatch = { ...patch };
+        if (safePatch.email) {
+          delete safePatch.email.encKey;
+          delete safePatch.email.iv;
+          delete safePatch.email.salt;
+          delete safePatch.email.encPass;
+          delete safePatch.email.ivPass;
+          delete safePatch.email.saltPass;
+          delete safePatch.email.hasApiKey;
+          delete safePatch.email.hasSmtpPass;
+        }
+        const next = await PushStore.saveSettings(safePatch);
+        sendResponse({ success: true, settings: next });
+      })();
+      return true;
+    }
+
+    case 'pushSetApiKey': {
+      (async () => {
+        const { apiKey, provider } = message;
+        if (!apiKey || typeof apiKey !== 'string') {
+          sendResponse({ success: false, error: 'invalid_key' });
+          return;
+        }
+        if (!provider) {
+          sendResponse({ success: false, error: 'invalid_provider' });
+          return;
+        }
+        await PushStore.saveApiKeyForProvider(provider, apiKey);
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+
+    case 'pushClearApiKey': {
+      (async () => {
+        const { provider } = message;
+        if (!provider) {
+          sendResponse({ success: false, error: 'invalid_provider' });
+          return;
+        }
+        await PushStore.clearApiKeyForProvider(provider);
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+
+    // 查询指定 provider 的凭证状态（切换 provider 时调用，避免完整重载）
+    case 'pushGetCredStatus': {
+      (async () => {
+        const { provider } = message;
+        if (!provider) {
+          sendResponse({ success: false, error: 'invalid_provider' });
+          return;
+        }
+        const hasApiKey = await PushStore.hasApiKeyForProvider(provider);
+        const hasSmtpPass = await PushStore.hasSmtpPassForProvider(provider);
+        sendResponse({ success: true, hasApiKey, hasSmtpPass });
+      })();
+      return true;
+    }
+
+    case 'pushSendTest': {
+      (async () => {
+        const result = await PushChannel.sendTestEmail();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    // ===== SMTP 授权码管理 =====
+    case 'pushSetSmtpPass': {
+      (async () => {
+        const { password, provider } = message;
+        if (!password || typeof password !== 'string') {
+          sendResponse({ success: false, error: 'invalid_password' });
+          return;
+        }
+        if (!provider) {
+          sendResponse({ success: false, error: 'invalid_provider' });
+          return;
+        }
+        await PushStore.saveSmtpPassForProvider(provider, password);
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+
+    case 'pushClearSmtpPass': {
+      (async () => {
+        const { provider } = message;
+        if (!provider) {
+          sendResponse({ success: false, error: 'invalid_provider' });
+          return;
+        }
+        await PushStore.clearSmtpPassForProvider(provider);
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+
+    case 'pushGetProviders': {
+      // 返回预置 provider 列表，供设置页渲染下拉框
+      sendResponse({
+        success: true,
+        http: PushChannel.HTTP_PROVIDERS,
+        smtp: PushChannel.SMTP_PROVIDERS
+      });
+      return true;
+    }
+
+    case 'pushBridgeHealth': {
+      // 检测本地 SMTP 桥接程序是否在运行
+      (async () => {
+        const result = await PushChannel.checkBridgeHealth();
         sendResponse(result);
       })();
       return true;

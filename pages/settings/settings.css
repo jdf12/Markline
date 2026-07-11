@@ -404,6 +404,15 @@ body {
   color: white;
 }
 
+/* 按钮禁用态：置灰且不可点击 */
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(0.3);
+}
+
 .btn-danger {
   border-color: var(--danger);
   background: transparent;
@@ -627,7 +636,7 @@ body {
 /* ===== Toast ===== */
 .toast-container {
   position: fixed;
-  bottom: 16px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 9999;
@@ -1466,6 +1475,256 @@ body.theme-dark .conflict-details .conflict-item kbd {
 
 .ai-full-url-row {
   border-bottom: none;
+}
+
+/* ===== 推送通知面板 ===== */
+#panel-push .setting-card {
+  margin-bottom: var(--space-lg);
+}
+
+#panel-push .setting-card:last-child {
+  margin-bottom: 0;
+}
+
+/* 卡片小标题 */
+.push-card-header {
+  padding: var(--space-sm) var(--space-xl) var(--space-xs);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.push-card-header:first-child {
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+}
+
+/* 统一输入框宽度 */
+.push-input {
+  width: 220px;
+}
+
+.push-input--wide {
+  width: 320px;
+}
+
+.push-input--narrow {
+  width: 90px;
+  text-align: center;
+}
+
+.push-input--time {
+  width: 100px;
+}
+
+/* API Key 全宽行 */
+.push-apikey-row {
+  gap: var(--space-md);
+}
+
+.push-apikey-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.push-apikey-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-light);
+}
+
+.push-apikey-badge.is-set {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.push-apikey-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.push-apikey-buttons {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.push-apikey-controls .push-input {
+  width: 100%;
+}
+
+/* 静默时段控件 */
+.push-quiet-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.push-quiet-sep {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* 服务类型单选按钮组 */
+.push-radio-group {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.push-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.push-radio input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.push-radio input[type="radio"] + span {
+  user-select: none;
+}
+
+/* 凭证(API Key/授权码)内联布局:输入框+按钮同行 */
+.push-cred-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.push-cred-inline .push-input {
+  width: 180px;
+}
+
+/* 字段显隐控制:默认按类型显示/隐藏 */
+.push-smtp-only,
+.push-smtp-custom-only,
+.push-http-only,
+.push-http-custom-only {
+  display: none;
+}
+
+/* 模式匹配时显示(由 JS 动态添加 .is-visible) */
+.push-smtp-only.is-visible,
+.push-smtp-custom-only.is-visible,
+.push-http-only.is-visible,
+.push-http-custom-only.is-visible {
+  display: flex;
+}
+
+/* 推送隐私提示卡片（复用 ai-hint-card 样式） */
+.push-hint-card {
+  margin: 0 var(--space-xl) var(--space-lg);
+}
+
+/* SMTP 桥接状态指示 */
+.push-bridge-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.push-bridge-status::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.push-bridge-status--checking {
+  background: var(--bg-active);
+  color: var(--text-secondary);
+}
+.push-bridge-status--checking::before {
+  background: var(--text-tertiary);
+}
+
+.push-bridge-status--ok {
+  background: var(--success-light);
+  color: var(--success);
+}
+.push-bridge-status--ok::before {
+  background: var(--success);
+}
+
+.push-bridge-status--error {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+.push-bridge-status--error::before {
+  background: var(--danger);
+}
+
+.push-bridge-status--unknown {
+  background: var(--bg-active);
+  color: var(--text-secondary);
+}
+.push-bridge-status--unknown::before {
+  background: var(--text-tertiary);
+}
+
+/* 窄屏适配 */
+@media (max-width: 640px) {
+  #panel-push .setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  #panel-push .setting-control {
+    width: 100%;
+  }
+
+  .push-input,
+  .push-input--wide,
+  .push-cred-inline .push-input {
+    width: 100%;
+  }
+
+  .push-quiet-control {
+    justify-content: space-between;
+  }
+
+  .push-cred-inline {
+    flex-wrap: wrap;
+  }
+
+  .push-cred-inline .btn {
+    flex: 1;
+  }
+
+  .push-radio-group {
+    flex-direction: row;
+    gap: var(--space-md);
+  }
 }
 
 body.theme-dark .ai-hint-card {
