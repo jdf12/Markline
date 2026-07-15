@@ -21,6 +21,7 @@
   const SVG_MDI_RESTORE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="14" height="14" rx="1"/><path d="M7 7V5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2"/></svg>';
   const SVG_MDI_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>';
   const SVG_MDI_RELOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+  const SVG_MDI_VOICE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
   const SVG_MDI_VOLUME = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
   const SVG_MDI_MUTED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
   const SVG_MDI_WARNING = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
@@ -352,6 +353,33 @@
       }
     }
 
+    /**
+     * 同步所有窗口的朗读按钮状态
+     * - 桥接未就绪：禁用
+     * - 正在朗读此窗口：高亮
+     * - 其他：正常
+     * 由 VoicePlayer.onStateChange 触发，或在桥接就绪后手动调用一次
+     */
+    syncVoiceButtons() {
+      let state = null;
+      try {
+        if (window.VoicePlayer) state = window.VoicePlayer.getState();
+      } catch {}
+
+      for (const [id] of this.windows) {
+        const el = this.container.querySelector(`[data-mdi-id="${id}"] .mdi-btn--voice`);
+        if (!el) continue;
+        el.classList.remove('mdi-btn--voice--active', 'mdi-btn--voice--disabled');
+        if (!state || !state.ready) {
+          el.classList.add('mdi-btn--voice--disabled');
+          continue;
+        }
+        if (state.playing && state.windowId === id) {
+          el.classList.add('mdi-btn--voice--active');
+        }
+      }
+    }
+
     // --- Internal ---
 
     _calcNewWindowPosition() {
@@ -388,6 +416,7 @@
           <img class="mdi-window-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'">
           <span class="mdi-window-title">${escapeHtml(title)}</span>
           <div class="mdi-window-controls">
+            <button class="mdi-btn mdi-btn--voice" title="${escapeHtml(i18n('mdiVoice'))}">${SVG_MDI_VOICE}</button>
             <button class="mdi-btn mdi-btn--reload" title="${escapeHtml(i18n('mdiReload'))}">${SVG_MDI_RELOAD}</button>
             <button class="mdi-btn mdi-btn--minimize" title="${escapeHtml(i18n('mdiMinimize'))}">${SVG_MDI_MINIMIZE}</button>
             <button class="mdi-btn mdi-btn--maximize" title="${escapeHtml(i18n('mdiMaximize'))}">${SVG_MDI_MAXIMIZE}</button>
@@ -420,6 +449,32 @@
         e.stopPropagation();
         this._rebuildIframe(win, id);
       });
+
+      // 朗读按钮：调用 VoicePlayer 朗读当前窗口 URL
+      const voiceBtn = win.querySelector('.mdi-btn--voice');
+      if (voiceBtn) {
+        voiceBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!window.VoicePlayer) return;
+          if (voiceBtn.classList.contains('mdi-btn--voice--disabled')) return;
+          // 若当前正在朗读此窗口，则切换为停止
+          const state = window.VoicePlayer.getState();
+          if (state.playing && state.windowId === id) {
+            window.VoicePlayer.stop();
+            return;
+          }
+          // 确保初始化
+          window.VoicePlayer.init();
+          await window.VoicePlayer.playFromUrl(url, title, id);
+        });
+        // 初次创建：若 VoicePlayer 已就绪且不可用，禁用按钮
+        if (window.VoicePlayer) {
+          const st = window.VoicePlayer.getState();
+          if (!st.ready) {
+            voiceBtn.classList.add('mdi-btn--voice--disabled');
+          }
+        }
+      }
 
       win.querySelector('.mdi-btn--minimize').addEventListener('click', (e) => {
         e.stopPropagation();

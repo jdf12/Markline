@@ -83,18 +83,40 @@
   display: none;
 }
 
-/* 拖拽排序状态 */
-.sa-rss-feed-item[draggable="true"] {
-  -webkit-user-drag: element;
+/* ===== 拖拽排序视觉反馈 ===== */
+.sa-rss-feed-item[draggable="true"]:hover {
+  cursor: grab;
 }
 
 .sa-rss-feed-item.dragging {
   opacity: 0.4;
+  cursor: grabbing !important;
 }
 
-.sa-rss-feed-item.drag-over {
-  border-top: 2px solid var(--accent);
-  margin-top: -1px;
+.sa-rss-feed-item.drag-over-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.sa-rss-feed-item.drag-over-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.sa-feed-overview-card[draggable="true"]:hover {
+  cursor: grab;
+}
+
+.sa-feed-overview-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+  cursor: grabbing !important;
+}
+
+.sa-feed-overview-card.drag-over-before {
+  box-shadow: inset 3px 0 0 var(--accent), 0 2px 8px rgba(0, 0, 0, .06);
+}
+
+.sa-feed-overview-card.drag-over-after {
+  box-shadow: inset -3px 0 0 var(--accent), 0 2px 8px rgba(0, 0, 0, .06);
 }
 
 /* ===== 主视图 ===== */
@@ -606,46 +628,6 @@
   color: var(--success);
 }
 
-/* 订阅加载进度条 */
-.sa-feed-add-status:has(.sa-feed-add-progress-wrap) {
-  display: block;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  padding: 10px 12px;
-}
-
-.sa-feed-add-progress-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.sa-feed-add-progress-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bg-hover);
-  overflow: hidden;
-}
-
-.sa-feed-add-progress-bar {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--accent));
-  background-size: 200% 100%;
-  animation: sa-feed-progress-shimmer 1.5s linear infinite;
-  transition: width 0.25s ease-out;
-}
-
-@keyframes sa-feed-progress-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.sa-feed-add-progress-label {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
 .sa-feed-add-footer {
   display: flex;
   justify-content: flex-end;
@@ -688,27 +670,6 @@
 .sa-feed-overview-card:hover {
   border-color: var(--border-medium);
   box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
-}
-
-/* 卡片拖拽排序状态 */
-.sa-feed-overview-card[draggable="true"] {
-  cursor: grab;
-}
-
-.sa-feed-overview-card.dragging {
-  opacity: 0.4;
-}
-
-/* 拖到目标左半区 → 插到目标前（左侧高亮指示线） */
-.sa-feed-overview-card.drag-over-left {
-  border-color: var(--accent);
-  box-shadow: -3px 0 0 0 var(--accent), 0 2px 8px rgba(0, 0, 0, .06);
-}
-
-/* 拖到目标右半区 → 插到目标后（右侧高亮指示线） */
-.sa-feed-overview-card.drag-over-right {
-  border-color: var(--accent);
-  box-shadow: 3px 0 0 0 var(--accent), 0 2px 8px rgba(0, 0, 0, .06);
 }
 
 .sa-feed-overview-header {

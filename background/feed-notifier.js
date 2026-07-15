@@ -47,7 +47,11 @@
 
     // 邮箱推送通道（独立模块，失败不影响主流程）
     if (typeof global.PushChannel === 'object' && global.PushChannel.onPollComplete) {
-      try { global.PushChannel.onPollComplete(results); } catch { /* 静默 */ }
+      try {
+        await global.PushChannel.onPollComplete(results);
+      } catch (e) {
+        console.warn('[Push] onPollComplete error:', e.message);
+      }
     }
   }
 

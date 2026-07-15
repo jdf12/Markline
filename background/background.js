@@ -16,6 +16,9 @@ importScripts('feed-discover.js');
 // 引入推送通知模块（邮箱通知，API Key / SMTP 授权码加密存储；SMTP 通过本地桥接程序发送）
 importScripts('../shared/push-store.js');
 importScripts('push-channel.js');
+// 引入语音朗读模块（edge-tts 本地桥接；非敏感配置明文存储）
+importScripts('../shared/voice-store.js');
+importScripts('voice-bridge-client.js');
 
 // ===== 正文内容提取 =====
 async function extractActiveTabContent(tabId, url) {
@@ -1724,7 +1727,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           delete safePatch.email.hasApiKey;
           delete safePatch.email.hasSmtpPass;
         }
+        const oldSettings = await PushStore.getSettings();
         const next = await PushStore.saveSettings(safePatch);
+        // 检测策略/每日时间/启用状态变更，重建 alarm
+        const strategyChanged = oldSettings.strategy !== next.strategy
+          || oldSettings.dailySendAt !== next.dailySendAt
+          || oldSettings.enabled !== next.enabled;
+        if (strategyChanged && typeof PushChannel.onStrategyChanged === 'function') {
+          PushChannel.onStrategyChanged(next).catch(e => console.warn('[Push] onStrategyChanged error:', e.message));
+        }
         sendResponse({ success: true, settings: next });
       })();
       return true;
@@ -1828,6 +1839,154 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // 检测本地 SMTP 桥接程序是否在运行
       (async () => {
         const result = await PushChannel.checkBridgeHealth();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    // ===== 手动 flush 队列（设置页"立即发送"按钮）=====
+    case 'pushFlushNow': {
+      (async () => {
+        const result = await PushChannel.flushQueue();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    // ===== 发送历史 =====
+    case 'pushGetHistory': {
+      (async () => {
+        const history = await PushStore.getHistory();
+        sendResponse({ success: true, history });
+      })();
+      return true;
+    }
+
+    case 'pushClearHistory': {
+      (async () => {
+        await PushStore.clearHistory();
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+
+    // ===== 队列状态查看 =====
+    case 'pushGetQueue': {
+      (async () => {
+        const queue = await PushStore.getQueue();
+        sendResponse({ success: true, count: queue.length, items: queue });
+      })();
+      return true;
+    }
+
+    // ===== 诊断：获取 alarm 状态 =====
+    case 'pushGetAlarmStatus': {
+      (async () => {
+        if (typeof PushChannel.getAlarmStatus === 'function') {
+          const status = await PushChannel.getAlarmStatus();
+          sendResponse({ success: true, ...status });
+        } else {
+          sendResponse({ success: false, error: 'getAlarmStatus not available' });
+        }
+      })();
+      return true;
+    }
+
+    // ===== 手动重建 alarm =====
+    case 'pushRebuildAlarms': {
+      (async () => {
+        if (typeof PushChannel.onStrategyChanged === 'function') {
+          const settings = await PushStore.getSettings();
+          await PushChannel.onStrategyChanged(settings);
+          sendResponse({ success: true });
+        } else {
+          sendResponse({ success: false, error: 'onStrategyChanged not available' });
+        }
+      })();
+      return true;
+    }
+
+    // ===== 语音朗读：设置读写 =====
+    case 'voiceGetSettings': {
+      (async () => {
+        const settings = await VoiceStore.getSettings();
+        sendResponse({ success: true, settings });
+      })();
+      return true;
+    }
+
+    case 'voiceSetSettings': {
+      (async () => {
+        const patch = message.patch || {};
+        const merged = await VoiceStore.setSettings(patch);
+        sendResponse({ success: true, settings: merged });
+      })();
+      return true;
+    }
+
+    case 'voiceResetSettings': {
+      (async () => {
+        const settings = await VoiceStore.resetSettings();
+        sendResponse({ success: true, settings });
+      })();
+      return true;
+    }
+
+    // ===== 语音朗读：桥接健康检查 =====
+    case 'voiceBridgeHealth': {
+      (async () => {
+        const result = await VoiceBridgeClient.checkHealth();
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    // ===== 语音朗读：获取语音列表 =====
+    case 'voiceListVoices': {
+      (async () => {
+        const result = await VoiceBridgeClient.listVoices(message.locale);
+        sendResponse(result);
+      })();
+      return true;
+    }
+
+    // ===== 语音朗读：同步合成（短文本，返回 base64 音频） =====
+    case 'voiceSynthesize': {
+      (async () => {
+        // Service Worker 不能直接传 Blob 给页面，转 base64
+        const result = await VoiceBridgeClient.synthesizeSync(message.payload);
+        if (result.ok && result.blob) {
+          const buf = await result.blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          const dataUrl = 'data:audio/mpeg;base64,' + btoa(binary);
+          sendResponse({ ok: true, dataUrl, size: result.size });
+        } else {
+          sendResponse(result);
+        }
+      })();
+      return true;
+    }
+
+    // ===== 语音朗读：异步合成（长文本，返回 taskId + streamUrl） =====
+    case 'voiceSynthAsync': {
+      (async () => {
+        const result = await VoiceBridgeClient.startAsyncSynth(message.payload);
+        if (result.ok && result.taskId) {
+          const streamUrl = await VoiceBridgeClient.getStreamUrl(result.taskId);
+          sendResponse({ ok: true, taskId: result.taskId, streamUrl });
+        } else {
+          sendResponse(result);
+        }
+      })();
+      return true;
+    }
+
+    // ===== 语音朗读：清理任务 =====
+    case 'voiceClearTask': {
+      (async () => {
+        const result = await VoiceBridgeClient.clearTask(message.taskId);
         sendResponse(result);
       })();
       return true;

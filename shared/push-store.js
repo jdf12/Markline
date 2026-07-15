@@ -24,17 +24,22 @@
 //       smtpPort: 465,            // Custom SMTP 端口
 //       smtpTls: 'ssl'            // ssl | starttls | none
 //     },
-//     strategy: 'batch30',      // 推送策略: instant | batch30 | batch60 | batch180 | daily
-//     minIntervalMin: 30,       // 最小推送间隔(分钟)
-//     dailyLimit: 20,           // 每日推送上限(封), 0=不限
-//     quietHours: { start: '', end: '' },  // 静默时段 HH:MM, 空=不启用
-//     keywords: { include: [], exclude: [] },
-//     feedPushTo: {}            // { feedId: ['email'] }，预留多渠道
+//     strategy: 'daily',                       // 推送策略: instant 即时通知 | daily 每日摘要
+//     dailySendAt: '08:00',                    // 每日摘要发送时间 (HH:MM)，仅 strategy=daily 生效
+//     quietHours: { start: '22:00', end: '07:00' },  // 静默时段 (仅 instant 生效)，空=不启用
+//     keywords: { include: [], exclude: [] },  // 关键词过滤
+//     feedPushTo: {},                          // { feedId: ['email'] }，预留多渠道
+//     digest: {                                // AI 早报摘要配置（仅 strategy=daily 生效）
+//       aiEnabled: true,                       //   启用 AI 智能摘要（失败自动回退列表）
+//       maxItems: 30,                          //   早报最多包含文章数（10-50）
+//       style: 'briefing'                      //   'briefing'(AI早报) | 'list'(传统列表)
+//     }
 //   }
 //   push_key_<provider>: { encKey, iv, salt }       // 按服务商分片的 API Key 加密存储
 //   push_pass_<provider>: { encKey, iv, salt }      // 按服务商分片的 SMTP 授权码加密存储
-//   push_queue: [{ feed, item, queuedAt }]  // 聚合待推送队列
-//   push_rate: { lastSentAt: 0, todayCount: 0, todayDate: 'YYYY-MM-DD' }  // 频率控制状态
+//   push_queue: [{ feedId, feedTitle, item, queuedAt, dedupKey }]  // 聚合待推送队列（daily 模式累积）
+//     item: { title, link, summary(≤1000字), imageUrl, publishedAt, author }
+//   push_history: [{ id, time, status, count, error }]  // 发送历史（最近 20 条）
 //   push_device_secret: base64  // 设备绑定密钥（首次生成）
 
 (function (global) {
@@ -142,38 +147,53 @@
       provider: 'resend',
       to: '',
       from: '',
-      // HTTP API 模式
-      encKey: '', iv: '', salt: '',
       endpoint: '',
       authType: 'bearer',
-      // SMTP 模式
       username: '',
-      encPass: '', ivPass: '', saltPass: '',
       smtpHost: '',
       smtpPort: 465,
       smtpTls: 'ssl'
     },
-    strategy: 'batch30',
-    minIntervalMin: 30,
-    dailyLimit: 20,
-    quietHours: { start: '', end: '' },
+    strategy: 'daily',                                  // instant | daily
+    dailySendAt: '08:00',                               // 每日摘要发送时间
+    quietHours: { start: '22:00', end: '07:00' },      // 静默时段 (仅 instant 生效)
     keywords: { include: [], exclude: [] },
-    feedPushTo: {}
+    feedPushTo: {},
+    // AI 早报摘要配置（仅 strategy=daily 生效）
+    digest: {
+      aiEnabled: true,      // 启用 AI 智能摘要（失败自动回退列表）
+      maxItems: 30,         // 早报最多包含文章数（10-50）
+      style: 'briefing'     // 'briefing'(AI早报) | 'list'(传统列表)
+    }
   };
 
   async function getSettings() {
     const r = await chrome.storage.local.get(STORAGE_KEY);
     const s = r[STORAGE_KEY];
     if (!s) return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-    // 深度合并，确保嵌套字段不缺失
+    // 深度合并，确保嵌套字段不缺失；同时清理已废弃字段（minIntervalMin/dailyLimit/email.encKey 等）
     const merged = {
       ...DEFAULT_SETTINGS,
       ...s,
       email: { ...DEFAULT_SETTINGS.email, ...(s.email || {}) },
       quietHours: { ...DEFAULT_SETTINGS.quietHours, ...(s.quietHours || {}) },
       keywords: { ...DEFAULT_SETTINGS.keywords, ...(s.keywords || {}) },
-      feedPushTo: s.feedPushTo || {}
+      feedPushTo: s.feedPushTo || {},
+      digest: { ...DEFAULT_SETTINGS.digest, ...(s.digest || {}) }
     };
+    // 兼容旧数据：batch30/60/180 → daily，instant 保留
+    if (merged.strategy !== 'instant' && merged.strategy !== 'daily') {
+      merged.strategy = 'daily';
+    }
+    // 清理已废弃字段
+    delete merged.minIntervalMin;
+    delete merged.dailyLimit;
+    delete merged.email.encKey;
+    delete merged.email.iv;
+    delete merged.email.salt;
+    delete merged.email.encPass;
+    delete merged.email.ivPass;
+    delete merged.email.saltPass;
     return merged;
   }
 
@@ -185,33 +205,11 @@
       email: { ...cur.email, ...(patch.email || {}) },
       quietHours: { ...cur.quietHours, ...(patch.quietHours || {}) },
       keywords: { ...cur.keywords, ...(patch.keywords || {}) },
-      feedPushTo: { ...cur.feedPushTo, ...(patch.feedPushTo || {}) }
+      feedPushTo: { ...cur.feedPushTo, ...(patch.feedPushTo || {}) },
+      digest: { ...cur.digest, ...(patch.digest || {}) }
     };
     await chrome.storage.local.set({ [STORAGE_KEY]: next });
     return next;
-  }
-
-  // ===== SMTP 授权码加密存储（复用 AES-GCM，独立 IV/salt）=====
-  async function saveSmtpPassword(plainPass) {
-    const encData = await encryptApiKey(plainPass); // 复用同一加密函数
-    return saveSettings({
-      email: { encPass: encData.encKey, ivPass: encData.iv, saltPass: encData.salt }
-    });
-  }
-
-  async function getDecryptedSmtpPassword() {
-    const s = await getSettings();
-    if (!s.email.encPass || !s.email.ivPass || !s.email.saltPass) return '';
-    return decryptApiKey({
-      encKey: s.email.encPass,
-      iv: s.email.ivPass,
-      salt: s.email.saltPass
-    });
-  }
-
-  async function hasSmtpPassword() {
-    const s = await getSettings();
-    return !!(s.email.encPass && s.email.ivPass && s.email.saltPass);
   }
 
   // ===== 聚合队列管理 =====
@@ -222,26 +220,101 @@
     return r[QUEUE_KEY] || [];
   }
 
+  // 入队文章。过滤超过 2 天的历史文章（防止首次订阅刷屏）
+  // r.added 已通过 FeedStore guid 去重，后续轮询只返回新文章
+  // 多源公平策略：每 feed 软配额 MAX_PER_FEED，避免高频源挤占低频源
+  const PUSH_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;  // 2 天
+  const MAX_QUEUE = 150;        // 队列总上限（提升，给 AI 摘要更多素材）
+  const MAX_PER_FEED = 15;      // 每 feed 软配额，保证多源覆盖
+
+  // 生成 dedupKey：标题归一化后取前 40 字符的简易哈希，用于跨源去重
+  function _makeDedupKey(title) {
+    if (!title) return '';
+    const normalized = String(title)
+      .toLowerCase()
+      .replace(/[\s\u3000]+/g, '')        // 去所有空白（含全角空格）
+      .replace(/[【】\[\]()（）{}<>《》""'':：,，.。!！?？;；\-_~`·]/g, ''); // 去标点
+    const slice = normalized.slice(0, 40);
+    // 简易 32 位哈希（djb2 变体）
+    let hash = 5381;
+    for (let i = 0; i < slice.length; i++) {
+      hash = ((hash << 5) + hash + slice.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(36);
+  }
+
   async function enqueueItems(feed, items) {
     const q = await getQueue();
     const queuedAt = Date.now();
-    const newEntries = items.map(it => ({
+    const now = Date.now();
+
+    // 时间过滤：剔除超过 2 天的历史文章（首次订阅保护）
+    const recentItems = items.filter(it => {
+      const pub = it.publishedAt;
+      if (!pub) return true;  // 无发布时间保留
+      const pubMs = typeof pub === 'number' ? pub : Date.parse(pub);
+      if (!pubMs || isNaN(pubMs)) return true;  // 解析失败保留
+      return (now - pubMs) < PUSH_MAX_AGE_MS;
+    });
+    if (recentItems.length < items.length) {
+      console.info('[PushStore] filtered old articles: kept', recentItems.length, '/', items.length, '(feed:', feed.title, ', max age: 2 days)');
+    }
+
+    const newEntries = recentItems.map(it => ({
       feedId: feed.id || feed.feedId || '',
       feedTitle: feed.title || '',
       item: {
         title: it.title || '',
         link: it.link || '',
-        summary: it.summary || '',
+        summary: (it.summary || '').slice(0, 1000),  // 放宽到 1000 字，给 AI 更多上下文
         imageUrl: it.imageUrl || '',
-        publishedAt: it.publishedAt || ''
+        publishedAt: it.publishedAt || '',
+        author: it.author || ''                       // 新增：用于来源署名
       },
-      queuedAt
+      queuedAt,
+      dedupKey: _makeDedupKey(it.title)                // 新增：跨源去重 key
     }));
     const next = [...q, ...newEntries];
-    // 队列上限 100 条，避免无限增长
-    const trimmed = next.length > 100 ? next.slice(next.length - 100) : next;
+    let quotaOverflow = 0;
+    let globalOverflow = 0;
+    let trimmed = next;
+    if (next.length > MAX_QUEUE) {
+      // 1. 先按 feed 软配额截断（每 feed 最多 MAX_PER_FEED 篇，保留最新）
+      const cntByFeed = new Map();
+      // 倒序遍历便于保留最新（入队是按时间追加，末尾较新）
+      const afterQuota = [];
+      for (let i = next.length - 1; i >= 0; i--) {
+        const e = next[i];
+        const cnt = cntByFeed.get(e.feedId) || 0;
+        if (cnt < MAX_PER_FEED) {
+          cntByFeed.set(e.feedId, cnt + 1);
+          afterQuota.unshift(e);  // 保持原顺序
+        }
+      }
+      quotaOverflow = next.length - afterQuota.length;
+
+      // 2. 若仍超限，按 publishedAt 降序全局截断
+      if (afterQuota.length > MAX_QUEUE) {
+        afterQuota.sort((a, b) => {
+          const aT = a.item.publishedAt ? (typeof a.item.publishedAt === 'number' ? a.item.publishedAt : Date.parse(a.item.publishedAt)) : 0;
+          const bT = b.item.publishedAt ? (typeof b.item.publishedAt === 'number' ? b.item.publishedAt : Date.parse(b.item.publishedAt)) : 0;
+          return (bT || 0) - (aT || 0);
+        });
+        globalOverflow = afterQuota.length - MAX_QUEUE;
+        trimmed = afterQuota.slice(0, MAX_QUEUE);
+      } else {
+        trimmed = afterQuota;
+      }
+      console.warn('[PushStore] queue overflow: quotaOverflow=', quotaOverflow, 'globalOverflow=', globalOverflow, '(feed:', feed.title, ')');
+    }
     await chrome.storage.local.set({ [QUEUE_KEY]: trimmed });
-    return trimmed.length;
+    return {
+      queueLength: trimmed.length,
+      overflowCount: quotaOverflow + globalOverflow,
+      quotaOverflow,
+      globalOverflow,
+      enqueuedCount: recentItems.length
+    };
   }
 
   async function drainQueue() {
@@ -251,53 +324,9 @@
     return q;
   }
 
-  // ===== 频率控制状态 =====
-  const RATE_KEY = 'push_rate';
-
-  async function getRateState() {
-    const r = await chrome.storage.local.get(RATE_KEY);
-    const today = new Date().toISOString().slice(0, 10);
-    const s = r[RATE_KEY] || { lastSentAt: 0, todayCount: 0, todayDate: today };
-    // 跨天重置
-    if (s.todayDate !== today) {
-      s.todayCount = 0;
-      s.todayDate = today;
-    }
-    return s;
-  }
-
-  async function recordSend() {
-    const s = await getRateState();
-    s.lastSentAt = Date.now();
-    s.todayCount = (s.todayCount || 0) + 1;
-    await chrome.storage.local.set({ [RATE_KEY]: s });
-  }
-
-  // 检查是否允许推送（返回原因）
-  async function checkRateLimit(settings) {
-    const s = await getRateState();
-    const now = Date.now();
-    // 最小间隔检查
-    const minIntervalMs = (settings.minIntervalMin || 0) * 60 * 1000;
-    if (minIntervalMs > 0 && s.lastSentAt > 0 && (now - s.lastSentAt) < minIntervalMs) {
-      return { allowed: false, reason: 'min_interval' };
-    }
-    // 每日上限检查
-    if (settings.dailyLimit && settings.dailyLimit > 0 && s.todayCount >= settings.dailyLimit) {
-      return { allowed: false, reason: 'daily_limit' };
-    }
-    // 静默时段检查
-    const qh = settings.quietHours;
-    if (qh && qh.start && qh.end) {
-      if (_isInQuietHours(qh.start, qh.end)) {
-        return { allowed: false, reason: 'quiet_hours' };
-      }
-    }
-    return { allowed: true };
-  }
-
-  // 判断当前时间是否在静默时段内
-  function _isInQuietHours(start, end) {
+  // ===== 静默时段判断（仅 instant 模式使用）=====
+  function isInQuietHours(start, end) {
+    if (!start || !end) return false;
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const [sh, sm] = start.split(':').map(Number);
@@ -313,22 +342,29 @@
     }
   }
 
-  // 专门用于保存 API Key（先加密再存）
-  async function saveApiKey(plainKey) {
-    const encData = await encryptApiKey(plainKey);
-    return saveSettings({ email: encData });
+  // ===== 发送历史（最近 20 条）=====
+  const HISTORY_KEY = 'push_history';
+  const HISTORY_MAX = 20;
+
+  async function getHistory() {
+    const r = await chrome.storage.local.get(HISTORY_KEY);
+    return r[HISTORY_KEY] || [];
   }
 
-  // 读取并解密 API Key（供 background 调用）
-  async function getDecryptedApiKey() {
-    const s = await getSettings();
-    return decryptApiKey(s.email);
+  async function addHistory(record) {
+    const history = await getHistory();
+    history.unshift({
+      id: Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      time: Date.now(),
+      ...record
+    });
+    if (history.length > HISTORY_MAX) history.length = HISTORY_MAX;
+    await chrome.storage.local.set({ [HISTORY_KEY]: history });
+    return history;
   }
 
-  // 判断是否已配置 API Key（不解密）
-  async function hasApiKey() {
-    const s = await getSettings();
-    return !!(s.email && s.email.encKey && s.email.iv && s.email.salt);
+  async function clearHistory() {
+    await chrome.storage.local.set({ [HISTORY_KEY]: [] });
   }
 
   // ===== 按服务商分片存储 API Key / SMTP 授权码 =====
@@ -405,14 +441,8 @@
   global.PushStore = {
     getSettings,
     saveSettings,
-    saveApiKey,
-    getDecryptedApiKey,
-    hasApiKey,
     encryptApiKey,
     decryptApiKey,
-    saveSmtpPassword,
-    getDecryptedSmtpPassword,
-    hasSmtpPassword,
     // 按服务商分片存储
     saveApiKeyForProvider,
     getDecryptedApiKeyForProvider,
@@ -425,8 +455,13 @@
     getQueue,
     enqueueItems,
     drainQueue,
-    getRateState,
-    recordSend,
-    checkRateLimit
+    // 静默时段判断
+    isInQuietHours,
+    // 发送历史
+    getHistory,
+    addHistory,
+    clearHistory,
+    // 跨源去重工具（供 push-channel 的相似度合并复用）
+    makeDedupKey: _makeDedupKey
   };
 })(typeof self !== 'undefined' ? self : this);

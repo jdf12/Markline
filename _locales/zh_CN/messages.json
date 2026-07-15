@@ -850,5 +850,237 @@
   "aiLogTime": {
     "message": "时间",
     "description": "AI 日志时间标签"
+  },
+  "mdiVoice": {
+    "message": "朗读",
+    "description": "MDI 窗口朗读按钮提示"
+  },
+  "voiceSection": {
+    "message": "语音朗读",
+    "description": "设置页语音面板导航"
+  },
+  "voiceSectionDesc": {
+    "message": "为 MDI 窗口中的网页提供语音朗读功能。使用本地 edge-tts 桥接程序合成语音，文本不外传。",
+    "description": "语音面板描述"
+  },
+  "voiceCardBridge": {
+    "message": "桥接服务状态",
+    "description": "语音面板卡片1标题"
+  },
+  "voiceBridgeChecking": {
+    "message": "检测中...",
+    "description": "桥接检测中状态"
+  },
+  "voiceBridgeOnline": {
+    "message": "运行中",
+    "description": "桥接已运行"
+  },
+  "voiceBridgeOffline": {
+    "message": "未运行",
+    "description": "桥接未运行"
+  },
+  "voiceBridgeRecheck": {
+    "message": "重新检测",
+    "description": "桥接重新检测按钮"
+  },
+  "voiceBridgePort": {
+    "message": "桥接端口",
+    "description": "桥接端口标签"
+  },
+  "voiceBridgePortDesc": {
+    "message": "voice_bridge.py 监听端口，默认 7822",
+    "description": "桥接端口描述"
+  },
+  "voiceBridgeStartup": {
+    "message": "启动命令",
+    "description": "桥接启动命令标签"
+  },
+  "voiceBridgeStatus": {
+    "message": "桥接状态",
+    "description": "桥接状态标签"
+  },
+  "voiceBridgeStatusDesc": {
+    "message": "语音合成需运行本地桥接程序（voice_bridge.py）",
+    "description": "桥接状态描述"
+  },
+  "voiceBridgeInstallHint": {
+    "message": "未检测到桥接？请在 bridge 目录执行：pip install -r requirements-voice.txt，然后运行 python voice_bridge.py",
+    "description": "桥接安装提示"
+  },
+  "voiceCardVoice": {
+    "message": "默认音色",
+    "description": "语音面板卡片2标题"
+  },
+  "voiceDefaultVoice": {
+    "message": "音色",
+    "description": "默认音色标签"
+  },
+  "voiceDefaultVoiceDesc": {
+    "message": "edge-tts 神经网络音色，建议选中文音色",
+    "description": "默认音色描述"
+  },
+  "voiceLocaleFilter": {
+    "message": "语言筛选",
+    "description": "音色语言筛选标签"
+  },
+  "voiceLocaleFilterDesc": {
+    "message": "从桥接拉取该语言的全部音色",
+    "description": "音色语言筛选描述"
+  },
+  "voiceLocaleZhCN": {
+    "message": "中文",
+    "description": "中文选项"
+  },
+  "voiceLocaleEnUS": {
+    "message": "英文 (US)",
+    "description": "英文选项"
+  },
+  "voiceLocaleJaJP": {
+    "message": "日文",
+    "description": "日文选项"
+  },
+  "voiceLocaleKoKR": {
+    "message": "韩文",
+    "description": "韩文选项"
+  },
+  "voiceLocaleAll": {
+    "message": "全部",
+    "description": "全部语言选项"
+  },
+  "voiceRefreshVoices": {
+    "message": "刷新列表",
+    "description": "刷新音色列表按钮"
+  },
+  "voicePreview": {
+    "message": "试听",
+    "description": "试听标签"
+  },
+  "voicePreviewDesc": {
+    "message": "用当前音色合成一段示例",
+    "description": "试听描述"
+  },
+  "voicePreviewBtn": {
+    "message": "试听样本",
+    "description": "试听按钮"
+  },
+  "voicePreviewing": {
+    "message": "合成中...",
+    "description": "试听合成中状态"
+  },
+  "voiceCardParams": {
+    "message": "朗读参数",
+    "description": "语音面板卡片3标题"
+  },
+  "voiceRate": {
+    "message": "语速",
+    "description": "语速标签"
+  },
+  "voiceRateDesc": {
+    "message": "-50% 慢速 ~ +100% 快速",
+    "description": "语速描述"
+  },
+  "voicePitch": {
+    "message": "音调",
+    "description": "音调标签"
+  },
+  "voicePitchDesc": {
+    "message": "edge-tts 音调偏移",
+    "description": "音调描述"
+  },
+  "voiceVolume": {
+    "message": "音量",
+    "description": "音量标签"
+  },
+  "voiceVolumeDesc": {
+    "message": "音量增减",
+    "description": "音量描述"
+  },
+  "voiceMaxChars": {
+    "message": "单次最大字数",
+    "description": "最大字数标签"
+  },
+  "voiceMaxCharsDesc": {
+    "message": "超过此长度自动截断，避免合成超长文本",
+    "description": "最大字数描述"
+  },
+  "voiceCardExtract": {
+    "message": "内容提取",
+    "description": "语音面板卡片4标题"
+  },
+  "voiceAutoExtract": {
+    "message": "自动提取正文 (Readability)",
+    "description": "自动提取正文开关"
+  },
+  "voiceAutoExtractDesc": {
+    "message": "关闭后将朗读整个页面文本（含导航/广告）",
+    "description": "自动提取正文描述"
+  },
+  "voiceAsyncThreshold": {
+    "message": "异步合成阈值",
+    "description": "异步合成阈值标签"
+  },
+  "voiceAsyncThresholdDesc": {
+    "message": "单段超过此字数时走异步合成（避免 HTTP 超时）",
+    "description": "异步合成阈值描述"
+  },
+  "voicePrivacyHint": {
+    "message": "音频合成由本地桥接程序完成，文本仅传至 127.0.0.1，不外传。",
+    "description": "语音隐私提示"
+  },
+  "voicePortInvalid": {
+    "message": "端口范围 1024-65535",
+    "description": "端口无效提示"
+  },
+  "voiceLoadingVoices": {
+    "message": "正在加载音色列表...",
+    "description": "加载音色列表提示"
+  },
+  "voiceLoadFailed": {
+    "message": "加载失败",
+    "description": "加载音色失败"
+  },
+  "voiceNoVoices": {
+    "message": "无可用音色",
+    "description": "无音色提示"
+  },
+  "voiceVoicesLoaded": {
+    "message": "已加载音色",
+    "description": "音色加载成功（数量动态拼接）"
+  },
+  "voiceSynthFailed": {
+    "message": "语音合成失败",
+    "description": "语音合成失败提示"
+  },
+  "voicePlay": {
+    "message": "播放",
+    "description": "播放按钮提示"
+  },
+  "voiceStop": {
+    "message": "停止",
+    "description": "停止按钮提示"
+  },
+  "voiceReading": {
+    "message": "朗读中",
+    "description": "朗读中状态"
+  },
+  "voiceFetching": {
+    "message": "正在抓取页面...",
+    "description": "抓取页面中"
+  },
+  "voiceSynthesizing": {
+    "message": "正在合成语音",
+    "description": "合成语音中"
+  },
+  "voiceBridgeNotRunning": {
+    "message": "语音桥接未运行，请先启动 voice_bridge.py",
+    "description": "桥接未运行提示"
+  },
+  "voiceEmptyContent": {
+    "message": "页面无正文可朗读",
+    "description": "无正文提示"
+  },
+  "voiceFetchFailed": {
+    "message": "抓取页面失败",
+    "description": "抓取失败提示"
   }
 }

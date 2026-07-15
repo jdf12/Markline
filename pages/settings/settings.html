@@ -151,6 +151,16 @@
           </button>
         </li>
         <li>
+          <button class="nav-item" data-panel="voice">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+            </svg>
+            <span data-i18n="voiceSection">Voice</span>
+          </button>
+        </li>
+        <li>
           <button class="nav-item" data-panel="about">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
@@ -1332,44 +1342,63 @@
 
           <div class="setting-row">
             <div class="setting-main">
-              <div class="setting-label" data-i18n="pushStrategyMode">推送策略</div>
-              <div class="setting-desc" data-i18n="pushStrategyModeDesc">聚合模式：在窗口内累积新文章合并为一封邮件，避免频繁打扰</div>
+              <div class="setting-label" data-i18n="pushStrategyMode">推送方式</div>
+              <div class="setting-desc" data-i18n="pushStrategyModeDesc">即时通知：有新文章立即发送；每日摘要：每天固定时间合并发送一封邮件</div>
             </div>
             <div class="setting-control">
               <select id="pushStrategySelect" class="select-control">
-                <option value="instant" data-i18n="pushStrategyInstant">即时推送</option>
-                <option value="batch30" data-i18n="pushStrategyBatch30">聚合 30 分钟</option>
-                <option value="batch60" data-i18n="pushStrategyBatch60">聚合 1 小时</option>
-                <option value="batch180" data-i18n="pushStrategyBatch180">聚合 3 小时</option>
-                <option value="daily" data-i18n="pushStrategyDaily">每日早报</option>
+                <option value="instant" data-i18n="pushStrategyInstant">即时通知</option>
+                <option value="daily" data-i18n="pushStrategyDaily">每日摘要（推荐）</option>
               </select>
             </div>
           </div>
 
-          <div class="setting-row">
+          <div class="setting-row push-daily-only">
             <div class="setting-main">
-              <div class="setting-label" data-i18n="pushMinInterval">最小推送间隔(分钟)</div>
-              <div class="setting-desc" data-i18n="pushMinIntervalDesc">两次推送之间的最小间隔，防止突发更新刷屏</div>
+              <div class="setting-label" data-i18n="pushDailySendAt">每日发送时间</div>
+              <div class="setting-desc" data-i18n="pushDailySendAtDesc">每天在此时间合并发送一封摘要邮件</div>
             </div>
             <div class="setting-control">
-              <input type="number" id="pushMinIntervalInput" class="tagrule-input push-input push-input--narrow" min="0" max="1440" step="5">
+              <input type="time" id="pushDailySendAtInput" class="tagrule-input push-input--time" value="08:00">
             </div>
           </div>
 
-          <div class="setting-row">
+          <div class="setting-row push-daily-only">
             <div class="setting-main">
-              <div class="setting-label" data-i18n="pushDailyLimit">每日推送上限(封)</div>
-              <div class="setting-desc" data-i18n="pushDailyLimitDesc">单日最多发送的邮件数，0 表示不限制</div>
+              <div class="setting-label" data-i18n="pushDigestStyle">摘要样式</div>
+              <div class="setting-desc" data-i18n="pushDigestStyleDesc">AI 早报：智能整理成主题早报（需配置 AI 分类服务）；传统列表：按源分组列出文章</div>
             </div>
             <div class="setting-control">
-              <input type="number" id="pushDailyLimitInput" class="tagrule-input push-input push-input--narrow" min="0" max="100" step="1">
+              <select id="pushDigestStyleSelect" class="select-control">
+                <option value="briefing" data-i18n="pushDigestStyleBriefing">AI 早报（推荐）</option>
+                <option value="list" data-i18n="pushDigestStyleList">传统列表</option>
+              </select>
             </div>
           </div>
 
-          <div class="setting-row">
+          <div class="setting-row push-daily-only" id="pushDigestMaxRow">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="pushDigestMaxItems">最多文章数</div>
+              <div class="setting-desc" data-i18n="pushDigestMaxItemsDesc">AI 早报最多包含的文章数量（10-50）</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="pushDigestMaxInput" class="tagrule-input push-input--time" min="10" max="50" value="30">
+            </div>
+          </div>
+
+          <div class="setting-row push-daily-only" id="pushDigestAiWarnRow" style="display:none;">
+            <div class="setting-main">
+              <div class="ai-hint-card" style="width:100%;">
+                <span data-i18n="pushDigestAiWarn">AI 早报需先配置 AI 分类服务</span>
+                <a href="#" id="pushDigestAiConfigLink" data-i18n="pushDigestAiConfigLink" style="color:#4B3FE3;margin-left:8px;">去配置</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row push-instant-only">
             <div class="setting-main">
               <div class="setting-label" data-i18n="pushQuietHours">静默时段</div>
-              <div class="setting-desc" data-i18n="pushQuietHoursDesc">在此时段内不推送(到点后合并发送)，留空则不启用</div>
+              <div class="setting-desc" data-i18n="pushQuietHoursDesc">即时模式下，在此时段内不推送（入队等静默结束后发送）</div>
             </div>
             <div class="setting-control push-quiet-control">
               <input type="time" id="pushQuietStartInput" class="tagrule-input push-input--time" data-i18n-title="pushQuietStart">
@@ -1377,17 +1406,263 @@
               <input type="time" id="pushQuietEndInput" class="tagrule-input push-input--time" data-i18n-title="pushQuietEnd">
             </div>
           </div>
-        </div>
 
-        <!-- 卡片4:测试 -->
-        <div class="setting-card push-card">
           <div class="setting-row">
             <div class="setting-main">
-              <div class="setting-label" data-i18n="pushTest">Test Push</div>
+              <div class="setting-label" data-i18n="pushKeywords">关键词过滤</div>
+              <div class="setting-desc" data-i18n="pushKeywordsDesc">包含任一关键词才推送；排除含任一关键词的文章。留空表示不过滤</div>
+            </div>
+            <div class="setting-control push-keywords-control">
+              <input type="text" id="pushKeywordsIncludeInput" class="tagrule-input push-input push-input--wide" placeholder="包含关键词，逗号分隔" data-i18n-placeholder="pushKeywordsInclude">
+              <input type="text" id="pushKeywordsExcludeInput" class="tagrule-input push-input push-input--wide" placeholder="排除关键词，逗号分隔" data-i18n-placeholder="pushKeywordsExclude">
+            </div>
+          </div>
+        </div>
+
+        <!-- 卡片4:测试与历史 -->
+        <div class="setting-card push-card">
+          <div class="push-card-header" data-i18n="pushCardTestHistory">测试与历史</div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="pushTest">测试推送</div>
               <div class="setting-desc" data-i18n="pushTestDesc">发送一封测试邮件验证配置是否正确</div>
             </div>
             <div class="setting-control">
-              <button id="pushTestBtn" class="btn btn-secondary" data-i18n="pushTestBtn" disabled>Send Test Email</button>
+              <button id="pushTestBtn" class="btn btn-secondary" data-i18n="pushTestBtn" disabled>发送测试邮件</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="pushFlushNow">立即发送队列</div>
+              <div class="setting-desc" data-i18n="pushFlushNowDesc">立即触发一次队列推送（忽略 daily 时间安排）</div>
+            </div>
+            <div class="setting-control">
+              <button id="pushFlushNowBtn" class="btn btn-secondary" data-i18n="pushFlushNowBtn">立即发送</button>
+              <button id="pushDiagBtn" class="btn btn-secondary btn-sm" data-i18n="pushDiagBtn">诊断</button>
+            </div>
+          </div>
+
+          <div class="setting-row push-history-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="pushHistory">发送历史</div>
+              <div class="setting-desc" data-i18n="pushHistoryDesc">最近 20 条发送记录（成功 / 失败）</div>
+            </div>
+            <div class="setting-control">
+              <button id="pushClearHistoryBtn" class="btn btn-secondary btn-sm" data-i18n="pushClearHistoryBtn">清空</button>
+            </div>
+          </div>
+
+          <div id="pushHistoryList" class="push-history-list">
+            <div class="push-empty-hint" data-i18n="pushHistoryEmpty">暂无发送记录</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 语音朗读 -->
+      <div class="panel-section" id="panel-voice">
+        <h2 class="panel-title" data-i18n="voiceSection">Voice Reading</h2>
+        <div class="setting-desc tagrules-intro" data-i18n="voiceSectionDesc">为 MDI 窗口中的网页提供语音朗读功能。使用本地 edge-tts 桥接程序合成语音，文本不外传。</div>
+
+        <!-- 卡片1: 桥接服务状态 -->
+        <div class="setting-card voice-card">
+          <div class="push-card-header" data-i18n="voiceCardBridge">桥接服务状态</div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceBridgeStatus">桥接状态</div>
+              <div class="setting-desc" data-i18n="voiceBridgeStatusDesc">语音合成需运行本地桥接程序（voice_bridge.py）</div>
+            </div>
+            <div class="setting-control">
+              <span id="voiceBridgeStatusText" class="push-bridge-status push-bridge-status--unknown" data-i18n="voiceBridgeChecking">检测中…</span>
+              <button type="button" id="voiceBridgeRefresh" class="btn btn-secondary" style="margin-left:8px;" data-i18n="voiceBridgeRecheck">重新检测</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceBridgePort">桥接端口</div>
+              <div class="setting-desc" data-i18n="voiceBridgePortDesc">voice_bridge.py 监听端口，默认 7822</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="voiceBridgePort" class="tagrule-input push-input push-input--narrow" min="1024" max="65535" placeholder="7822">
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceBridgeStartup">启动命令</div>
+              <div class="setting-desc"><code>python voice_bridge.py</code></div>
+            </div>
+            <div class="setting-control">
+              <span id="voiceBridgeVersion" class="voice-version-badge"></span>
+            </div>
+          </div>
+
+          <div class="ai-hint-card voice-hint-card">
+            <svg class="ai-hint-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <div class="ai-hint-content">
+              <div class="ai-hint-text" data-i18n="voiceBridgeInstallHint">
+                未检测到桥接？请在 bridge 目录执行：pip install -r requirements-voice.txt，然后运行 python voice_bridge.py
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 卡片2: 默认音色 -->
+        <div class="setting-card voice-card">
+          <div class="push-card-header" data-i18n="voiceCardVoice">默认音色</div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceDefaultVoice">音色</div>
+              <div class="setting-desc" data-i18n="voiceDefaultVoiceDesc">edge-tts 神经网络音色，建议选中文音色</div>
+            </div>
+            <div class="setting-control">
+              <select id="voiceDefaultVoiceSelect" class="select-control push-input--wide">
+                <option value="zh-CN-XiaoxiaoNeural">zh-CN-XiaoxiaoNeural (晓晓·女)</option>
+                <option value="zh-CN-YunxiNeural">zh-CN-YunxiNeural (云希·男)</option>
+                <option value="zh-CN-YunyangNeural">zh-CN-YunyangNeural (云扬·男)</option>
+                <option value="zh-CN-XiaoyiNeural">zh-CN-XiaoyiNeural (晓伊·女)</option>
+                <option value="zh-CN-XiaoqiuNeural">zh-CN-XiaoqiuNeural (晓秋·女)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceLocaleFilter">语言筛选</div>
+              <div class="setting-desc" data-i18n="voiceLocaleFilterDesc">从桥接拉取该语言的全部音色</div>
+            </div>
+            <div class="setting-control">
+              <select id="voiceLocaleFilter" class="select-control" style="min-width:160px;">
+                <option value="zh-CN" data-i18n="voiceLocaleZhCN">中文</option>
+                <option value="en-US" data-i18n="voiceLocaleEnUS">英文 (US)</option>
+                <option value="ja-JP" data-i18n="voiceLocaleJaJP">日文</option>
+                <option value="ko-KR" data-i18n="voiceLocaleKoKR">韩文</option>
+                <option value="" data-i18n="voiceLocaleAll">全部</option>
+              </select>
+              <button id="voiceRefreshVoices" class="btn btn-secondary btn-sm" data-i18n="voiceRefreshVoices">刷新列表</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voicePreview">试听</div>
+              <div class="setting-desc" data-i18n="voicePreviewDesc">用当前音色合成一段示例</div>
+            </div>
+            <div class="setting-control">
+              <button id="voicePreviewBtn" class="btn btn-primary btn-sm" data-i18n="voicePreviewBtn">试听样本</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 卡片3: 朗读参数 -->
+        <div class="setting-card voice-card">
+          <div class="push-card-header" data-i18n="voiceCardParams">朗读参数</div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceRate">语速</div>
+              <div class="setting-desc" data-i18n="voiceRateDesc">-50% 慢速 ~ +100% 快速</div>
+            </div>
+            <div class="setting-control">
+              <select id="voiceRateSelect" class="select-control" style="min-width:120px;">
+                <option value="-30%">-30%</option>
+                <option value="-15%">-15%</option>
+                <option value="+0%" selected>1.0x</option>
+                <option value="+15%">+15%</option>
+                <option value="+30%">+30%</option>
+                <option value="+50%">+50%</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voicePitch">音调</div>
+              <div class="setting-desc" data-i18n="voicePitchDesc">edge-tts 音调偏移</div>
+            </div>
+            <div class="setting-control">
+              <select id="voicePitchSelect" class="select-control" style="min-width:120px;">
+                <option value="-50Hz">-50Hz</option>
+                <option value="-25Hz">-25Hz</option>
+                <option value="+0Hz" selected>+0Hz</option>
+                <option value="+25Hz">+25Hz</option>
+                <option value="+50Hz">+50Hz</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceVolume">音量</div>
+              <div class="setting-desc" data-i18n="voiceVolumeDesc">音量增减</div>
+            </div>
+            <div class="setting-control">
+              <select id="voiceVolumeSelect" class="select-control" style="min-width:120px;">
+                <option value="-20%">-20%</option>
+                <option value="-10%">-10%</option>
+                <option value="+0%" selected>+0%</option>
+                <option value="+10%">+10%</option>
+                <option value="+20%">+20%</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceMaxChars">单次最大字数</div>
+              <div class="setting-desc" data-i18n="voiceMaxCharsDesc">超过此长度自动截断，避免合成超长文本</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="voiceMaxChars" class="tagrule-input push-input push-input--narrow" min="1000" max="50000" step="1000" placeholder="30000">
+            </div>
+          </div>
+        </div>
+
+        <!-- 卡片4: 内容提取 -->
+        <div class="setting-card voice-card">
+          <div class="push-card-header" data-i18n="voiceCardExtract">内容提取</div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceAutoExtract">自动提取正文 (Readability)</div>
+              <div class="setting-desc" data-i18n="voiceAutoExtractDesc">关闭后将朗读整个页面文本（含导航/广告）</div>
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="voiceAutoExtractToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-main">
+              <div class="setting-label" data-i18n="voiceAsyncThreshold">异步合成阈值</div>
+              <div class="setting-desc" data-i18n="voiceAsyncThresholdDesc">单段超过此字数时走异步合成（避免 HTTP 超时）</div>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="voiceAsyncThreshold" class="tagrule-input push-input push-input--narrow" min="500" max="10000" step="500" placeholder="3000">
+            </div>
+          </div>
+
+          <div class="ai-hint-card voice-hint-card">
+            <svg class="ai-hint-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <div class="ai-hint-content">
+              <div class="ai-hint-text" data-i18n="voicePrivacyHint">
+                音频合成由本地桥接程序完成，文本仅传至 127.0.0.1，不外传。
+              </div>
             </div>
           </div>
         </div>

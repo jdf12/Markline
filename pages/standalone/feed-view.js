@@ -215,8 +215,7 @@
         title: feed.title || feed.url,
         favicon: feed.favicon || (feed.siteUrl ? getFaviconForUrl(feed.siteUrl) : ''),
         unread: feedUnreadCounts.get(feed.id) || 0,
-        active: currentView === feed.id && isVisible(),
-        draggable: true
+        active: currentView === feed.id && isVisible()
       });
       node.dataset.feedId = feed.id;
       node.title = feed.url;
@@ -233,116 +232,39 @@
     }
   }
 
-  // ===== 订阅源拖拽排序 =====
-  let draggedFeedId = null;
+  // ===== 拖拽排序 =====
+  let _dragFeedId = null;
 
-  // 根据拖拽源与目标 id，在 feeds 数组中重排，返回新的 id 序列；
-  // position: 'before' 插到目标之前 / 'after' 插到目标之后；不修改 feeds
-  function computeReorderedFeedIds(fromId, toId, position) {
+  // 计算重排后的 feed ID 数组
+  // sourceId: 被拖拽的 feed, targetId: 放下的目标 feed, insertAfter: 是否插入到目标之后
+  function computeReorderedFeedIds(sourceId, targetId, insertAfter) {
     const ids = feeds.map(f => f.id);
-    const fromIdx = ids.indexOf(fromId);
-    const toIdx = ids.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return null;
-    ids.splice(fromIdx, 1);
-    // 源被移除后，目标的新索引（若源在目标之前，目标会前移一位）
-    const targetNewIdx = fromIdx < toIdx ? toIdx - 1 : toIdx;
-    const insertIdx = position === 'after' ? targetNewIdx + 1 : targetNewIdx;
-    ids.splice(insertIdx, 0, fromId);
+    const srcIdx = ids.indexOf(sourceId);
+    if (srcIdx === -1) return ids;
+    ids.splice(srcIdx, 1);  // 先移除源
+    const tgtIdx = ids.indexOf(targetId);
+    if (tgtIdx === -1) {
+      ids.push(sourceId);
+    } else {
+      ids.splice(insertAfter ? tgtIdx + 1 : tgtIdx, 0, sourceId);
+    }
     return ids;
   }
 
-  async function applyFeedReorder(fromId, toId, position) {
-    const newIds = computeReorderedFeedIds(fromId, toId, position);
-    if (!newIds) return;
-    // 本地立即重排 feeds，UI 即时响应
-    const map = new Map(feeds.map(f => [f.id, f]));
-    feeds = newIds.map(id => map.get(id)).filter(Boolean);
-    renderFeedList();
-    // 全部订阅 / 已收藏视图（卡片网格）也按 feeds 顺序渲染，拖完即时刷新
-    if (currentView === 'all' || currentView === 'starred') renderCurrentView();
-    // 持久化（失败时回滚由 storage.onChanged 触发的 scheduleLoad 修正）
+  // 持久化重排并刷新视图
+  async function applyFeedReorder(orderedIds) {
     try {
-      await send('rssReorderFeeds', { orderedIds: newIds });
+      const resp = await send('rssReorderFeeds', { orderedIds });
+      if (resp && resp.success) {
+        feeds = resp.feeds;
+        renderFeedList();
+        renderCurrentView();
+        return true;
+      }
     } catch (err) {
-      console.warn('[RSS] reorder failed:', err);
+      console.warn('RSS reorder failed:', err);
     }
-  }
-
-  function bindFeedNodeDrag(div, feedId) {
-    div.draggable = true;
-    div.addEventListener('dragstart', (e) => {
-      draggedFeedId = feedId;
-      div.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      try { e.dataTransfer.setData('text/plain', feedId); } catch { /* ignore */ }
-    });
-    div.addEventListener('dragend', () => {
-      draggedFeedId = null;
-      div.classList.remove('dragging');
-      // 清理所有残留的 drag-over 标记
-      const list = getFeedListEl();
-      if (list) list.querySelectorAll('.sa-rss-feed-item.drag-over').forEach(el => el.classList.remove('drag-over'));
-    });
-    div.addEventListener('dragover', (e) => {
-      if (!draggedFeedId || draggedFeedId === feedId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      div.classList.add('drag-over');
-    });
-    div.addEventListener('dragleave', () => {
-      div.classList.remove('drag-over');
-    });
-    div.addEventListener('drop', (e) => {
-      e.preventDefault();
-      div.classList.remove('drag-over');
-      if (draggedFeedId && draggedFeedId !== feedId) {
-        const fromId = draggedFeedId;
-        draggedFeedId = null;
-        // 垂直列表：上半部分插到目标前，下半部分插到目标后
-        const rect = div.getBoundingClientRect();
-        const position = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
-        applyFeedReorder(fromId, feedId, position);
-      }
-    });
-  }
-
-  // 卡片网格（全部订阅视图）拖拽：水平方向用左/右半区决定 before/after
-  function bindOverviewCardDrag(card, feedId) {
-    card.draggable = true;
-    card.addEventListener('dragstart', (e) => {
-      draggedFeedId = feedId;
-      card.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      try { e.dataTransfer.setData('text/plain', feedId); } catch { /* ignore */ }
-    });
-    card.addEventListener('dragend', () => {
-      draggedFeedId = null;
-      card.classList.remove('dragging');
-      card.classList.remove('drag-over-left', 'drag-over-right');
-    });
-    card.addEventListener('dragover', (e) => {
-      if (!draggedFeedId || draggedFeedId === feedId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const rect = card.getBoundingClientRect();
-      const isRightHalf = e.clientX > rect.left + rect.width / 2;
-      card.classList.toggle('drag-over-right', isRightHalf);
-      card.classList.toggle('drag-over-left', !isRightHalf);
-    });
-    card.addEventListener('dragleave', () => {
-      card.classList.remove('drag-over-left', 'drag-over-right');
-    });
-    card.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const rect = card.getBoundingClientRect();
-      const position = e.clientX > rect.left + rect.width / 2 ? 'after' : 'before';
-      card.classList.remove('drag-over-left', 'drag-over-right');
-      if (draggedFeedId && draggedFeedId !== feedId) {
-        const fromId = draggedFeedId;
-        draggedFeedId = null;
-        applyFeedReorder(fromId, feedId, position);
-      }
-    });
+    return false;
   }
 
   function createFeedListNode(opts) {
@@ -352,7 +274,7 @@
 
     let iconHtml = '';
     if (opts.favicon) {
-      iconHtml = `<img class="sa-rss-feed-favicon" src="${esc(opts.favicon)}" draggable="false" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'sa-rss-feed-icon',innerHTML:'${SVG_RSS.replace(/"/g, '&quot;')}'}))">`;
+      iconHtml = `<img class="sa-rss-feed-favicon" src="${esc(opts.favicon)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'sa-rss-feed-icon',innerHTML:'${SVG_RSS.replace(/"/g, '&quot;')}'}))">`;
     } else {
       iconHtml = `<span class="sa-rss-feed-icon">${opts.icon || SVG_RSS}</span>`;
     }
@@ -368,14 +290,57 @@
       e.preventDefault();
       showFeedContextMenu(opts.id, e.clientX, e.clientY);
     });
-    // 仅真实订阅源节点可拖拽排序（排除 "全部订阅" / "已收藏"）
-    if (opts.draggable) bindFeedNodeDrag(div, opts.id);
+
+    // 拖拽排序：仅实际订阅源可拖拽（排除 all/starred 虚拟节点）
+    if (opts.id !== 'all' && opts.id !== 'starred') {
+      div.draggable = true;
+
+      div.addEventListener('dragstart', (e) => {
+        _dragFeedId = opts.id;
+        div.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', opts.id);
+      });
+
+      div.addEventListener('dragend', () => {
+        div.classList.remove('dragging');
+        // 清除所有 drag-over 标记
+        const list = getFeedListEl();
+        if (list) list.querySelectorAll('.drag-over-before, .drag-over-after').forEach(el => el.classList.remove('drag-over-before', 'drag-over-after'));
+        _dragFeedId = null;
+      });
+
+      div.addEventListener('dragover', (e) => {
+        if (!_dragFeedId || _dragFeedId === opts.id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        // 上下半区判定插入位置
+        const rect = div.getBoundingClientRect();
+        const isAfter = (e.clientY - rect.top) > rect.height / 2;
+        div.classList.toggle('drag-over-before', !isAfter);
+        div.classList.toggle('drag-over-after', isAfter);
+      });
+
+      div.addEventListener('dragleave', () => {
+        div.classList.remove('drag-over-before', 'drag-over-after');
+      });
+
+      div.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        div.classList.remove('drag-over-before', 'drag-over-after');
+        if (!_dragFeedId || _dragFeedId === opts.id) return;
+        const rect = div.getBoundingClientRect();
+        const isAfter = (e.clientY - rect.top) > rect.height / 2;
+        const orderedIds = computeReorderedFeedIds(_dragFeedId, opts.id, isAfter);
+        await applyFeedReorder(orderedIds);
+      });
+    }
+
     return div;
   }
 
   // ===== 订阅源右键菜单 =====
   let feedContextMenuEl = null;
-  let feedContextMenuOutsideHandler = null;
 
   function showFeedContextMenu(feedId, x, y) {
     hideFeedContextMenu();
@@ -421,18 +386,10 @@
       if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
     });
 
-    // 点击/右键外部关闭：用一个具名 handler，便于关闭时同步移除监听，
-    // 避免 { once:true } 残留的 contextmenu 监听在新一次右键时把新菜单立刻关掉
-    feedContextMenuOutsideHandler = (e) => {
-      if (feedContextMenuEl && feedContextMenuEl.contains(e.target)) return; // 点在菜单内，交给按钮处理
-      hideFeedContextMenu();
-    };
-    // 延迟到下一事件循环再绑定，避免触发本次右键事件立即关闭菜单
+    // 点击外部关闭
     setTimeout(() => {
-      if (feedContextMenuOutsideHandler) {
-        document.addEventListener('click', feedContextMenuOutsideHandler, true);
-        document.addEventListener('contextmenu', feedContextMenuOutsideHandler, true);
-      }
+      document.addEventListener('click', hideFeedContextMenu, { once: true });
+      document.addEventListener('contextmenu', hideFeedContextMenu, { once: true });
     }, 0);
   }
 
@@ -440,11 +397,6 @@
     if (feedContextMenuEl) {
       feedContextMenuEl.remove();
       feedContextMenuEl = null;
-    }
-    if (feedContextMenuOutsideHandler) {
-      document.removeEventListener('click', feedContextMenuOutsideHandler, true);
-      document.removeEventListener('contextmenu', feedContextMenuOutsideHandler, true);
-      feedContextMenuOutsideHandler = null;
     }
   }
 
@@ -684,8 +636,7 @@
       arr.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
     }
 
-    // 按 feeds 数组顺序渲染（即用户自定义的拖拽顺序，与侧栏一致），
-    // 让拖拽排序的结果在卡片网格中稳定生效
+    // 使用存储顺序（支持拖拽排序），不按时间排序
     for (const feed of feeds) {
       const items = itemsByFeed.get(feed.id) || [];
       container.appendChild(buildFeedOverviewCard(feed, items));
@@ -709,8 +660,7 @@
       arr.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
     }
 
-    // 按 feeds 数组顺序渲染（仅含有收藏文章的 feed），
-    // 与侧栏/全部订阅保持一致的拖拽顺序
+    // 使用存储顺序（支持拖拽排序），仅显示有收藏文章的 feed
     for (const feed of feeds) {
       if (!itemsByFeed.has(feed.id)) continue;
       const items = itemsByFeed.get(feed.id) || [];
@@ -723,9 +673,6 @@
     const card = document.createElement('div');
     card.className = 'sa-feed-overview-card';
     card.dataset.feedId = feed.id;
-    // 全部订阅 / 已收藏视图下卡片均可拖拽排序
-    const isDraggable = currentView === 'all' || currentView === 'starred';
-    if (isDraggable) bindOverviewCardDrag(card, feed.id);
 
     const favicon = feed.favicon || (feed.siteUrl ? getFaviconForUrl(feed.siteUrl) : '');
     const unread = feedUnreadCounts.get(feed.id) || 0;
@@ -735,7 +682,7 @@
 
     // 卡片头部
     const faviconHtml = favicon
-      ? `<img class="sa-feed-overview-favicon" src="${esc(favicon)}" draggable="false" onerror="this.style.display='none'">`
+      ? `<img class="sa-feed-overview-favicon" src="${esc(favicon)}" onerror="this.style.display='none'">`
       : `<span class="sa-feed-overview-favicon-placeholder">${SVG_RSS}</span>`;
 
     const unreadHtml = unread > 0
@@ -743,12 +690,12 @@
       : '';
 
     // 头部操作按钮：刷新 + 取消订阅 + 编辑 + 加星
-    const refreshBtnHtml = `<button class="sa-feed-overview-action" draggable="false" data-act="refresh-feed" title="${esc(t('rssRefresh'))}">${SVG_REFRESH}</button>`;
-    const deleteBtnHtml = `<button class="sa-feed-overview-action danger" draggable="false" data-act="remove-feed" title="${esc(t('rssRemoveFeed'))}">${SVG_DELETE}</button>`;
+    const refreshBtnHtml = `<button class="sa-feed-overview-action" data-act="refresh-feed" title="${esc(t('rssRefresh'))}">${SVG_REFRESH}</button>`;
+    const deleteBtnHtml = `<button class="sa-feed-overview-action danger" data-act="remove-feed" title="${esc(t('rssRemoveFeed'))}">${SVG_DELETE}</button>`;
     const starBtnHtml = feed.starred
-      ? `<button class="sa-feed-overview-action starred" draggable="false" data-act="star-feed" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
-      : `<button class="sa-feed-overview-action" draggable="false" data-act="star-feed" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
-    const editBtnHtml = `<button class="sa-feed-overview-action" draggable="false" data-act="edit-feed" title="${esc(t('rssFeedSettings') || 'Edit')}">${SVG_EDIT}</button>`;
+      ? `<button class="sa-feed-overview-action starred" data-act="star-feed" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
+      : `<button class="sa-feed-overview-action" data-act="star-feed" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
+    const editBtnHtml = `<button class="sa-feed-overview-action" data-act="edit-feed" title="${esc(t('rssFeedSettings') || 'Edit')}">${SVG_EDIT}</button>`;
 
     // 文章预览行（含加星按钮）
     let itemsHtml = '';
@@ -756,8 +703,8 @@
       const titleClass = item.read ? 'read' : 'unread';
       const time = formatRelative(item.publishedAt);
       const itemStarHtml = item.starred
-        ? `<button class="sa-feed-overview-item-star starred" draggable="false" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
-        : `<button class="sa-feed-overview-item-star" draggable="false" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
+        ? `<button class="sa-feed-overview-item-star starred" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssUnstar'))}">${SVG_STAR_FILL}</button>`
+        : `<button class="sa-feed-overview-item-star" data-act="star-item" data-item-id="${esc(item.id)}" title="${esc(t('rssStar'))}">${SVG_STAR}</button>`;
       itemsHtml += `
         <div class="sa-feed-overview-item ${titleClass}" data-item-id="${esc(item.id)}">
           <span class="sa-feed-overview-item-title"><span class="sa-feed-overview-item-title-text">${esc(item.title || t('untitled'))}</span></span>
@@ -873,6 +820,49 @@
       const itemTextEl = itemTitleEl.querySelector('.sa-feed-overview-item-title-text');
       applyMarquee(itemTitleEl, itemTextEl);
     }
+
+    // 拖拽排序：卡片可拖拽，子元素禁止拖拽避免误触
+    card.draggable = true;
+    card.querySelectorAll('img, button, a, span').forEach(el => { el.draggable = false; });
+
+    card.addEventListener('dragstart', (e) => {
+      _dragFeedId = feed.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', feed.id);
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      const grid = card.parentElement;
+      if (grid) grid.querySelectorAll('.drag-over-before, .drag-over-after').forEach(el => el.classList.remove('drag-over-before', 'drag-over-after'));
+      _dragFeedId = null;
+    });
+
+    card.addEventListener('dragover', (e) => {
+      if (!_dragFeedId || _dragFeedId === feed.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      // 左右半区判定插入位置（网格布局）
+      const rect = card.getBoundingClientRect();
+      const isAfter = (e.clientX - rect.left) > rect.width / 2;
+      card.classList.toggle('drag-over-before', !isAfter);
+      card.classList.toggle('drag-over-after', isAfter);
+    });
+
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over-before', 'drag-over-after');
+    });
+
+    card.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      card.classList.remove('drag-over-before', 'drag-over-after');
+      if (!_dragFeedId || _dragFeedId === feed.id) return;
+      const rect = card.getBoundingClientRect();
+      const isAfter = (e.clientX - rect.left) > rect.width / 2;
+      const orderedIds = computeReorderedFeedIds(_dragFeedId, feed.id, isAfter);
+      await applyFeedReorder(orderedIds);
+    });
 
     return card;
   }
@@ -1312,48 +1302,6 @@
     });
 
     // 提交订阅
-    let subscribeProgressTimer = null;
-    let subscribeProgressStage = 0;
-    const PROGRESS_STAGES = [
-      { at: 0,    label: t('rssProgressFetch') || 'Fetching feed…' },
-      { at: 2500, label: t('rssProgressParse') || 'Parsing content…' },
-      { at: 6000, label: t('rssProgressLoad')  || 'Loading articles…' },
-      { at: 11000,label: t('rssProgressWait')  || 'Still working, please wait…' }
-    ];
-
-    function setSubscribeProgress(active) {
-      // 清理上一次的定时器
-      if (subscribeProgressTimer) {
-        clearInterval(subscribeProgressTimer);
-        subscribeProgressTimer = null;
-      }
-      if (!active) return;
-      subscribeProgressStage = 0;
-      let elapsed = 0;
-      // 每 250ms 推进进度条（到 95% 后保持，等待实际返回）
-      // 进度曲线：前 3s 较快到 60%，3-11s 缓慢到 90%，之后维持 95%
-      const tick = 250;
-      subscribeProgressTimer = setInterval(() => {
-        elapsed += tick;
-        let pct;
-        if (elapsed < 3000) pct = (elapsed / 3000) * 60;
-        else if (elapsed < 11000) pct = 60 + ((elapsed - 3000) / 8000) * 30;
-        else pct = Math.min(95, 90 + ((elapsed - 11000) / 20000) * 5);
-        const bar = overlay.querySelector('#saFeedAddProgress');
-        if (bar) bar.style.width = pct.toFixed(1) + '%';
-        // 阶段文案切换
-        const labelEl = overlay.querySelector('#saFeedAddProgressLabel');
-        let stage = subscribeProgressStage;
-        while (stage + 1 < PROGRESS_STAGES.length && elapsed >= PROGRESS_STAGES[stage + 1].at) {
-          stage++;
-        }
-        if (stage !== subscribeProgressStage) {
-          subscribeProgressStage = stage;
-          if (labelEl) labelEl.textContent = PROGRESS_STAGES[stage].label;
-        }
-      }, tick);
-    }
-
     async function doSubscribe() {
       const url = urlInput.value.trim();
       if (!url) {
@@ -1363,12 +1311,6 @@
       submitBtn.disabled = true;
       submitBtn.innerHTML = `<div class="sa-loading-dots"><span></span><span></span><span></span></div><span>${esc(t('rssSubscribing'))}</span>`;
       statusEl.className = 'sa-feed-add-status';
-      statusEl.innerHTML = `
-        <div class="sa-feed-add-progress-wrap">
-          <div class="sa-feed-add-progress-track"><div class="sa-feed-add-progress-bar" id="saFeedAddProgress" style="width:0%"></div></div>
-          <span class="sa-feed-add-progress-label" id="saFeedAddProgressLabel">${esc(PROGRESS_STAGES[0].label)}</span>
-        </div>`;
-      setSubscribeProgress(true);
 
       try {
         const resp = await send('rssAddFeed', {
@@ -1377,11 +1319,7 @@
           notify: overlay.querySelector('#saFeedAddNotify').checked,
           autoBookmark: overlay.querySelector('#saFeedAddAutoBookmark').checked
         });
-        setSubscribeProgress(false);
         if (resp && resp.success) {
-          // 进度条直接拉满再短暂停留，给用户完成感
-          const bar = overlay.querySelector('#saFeedAddProgress');
-          if (bar) bar.style.width = '100%';
           statusEl.className = 'sa-feed-add-status success';
           statusEl.textContent = t('rssSubscribeSuccess', [resp.feed.title || url, resp.itemCount || 0]);
           // storage.onChanged 会自动触发 scheduleLoad，无需手动调用
@@ -1411,7 +1349,6 @@
           submitBtn.innerHTML = `${SVG_ADD}<span>${esc(t('rssSubscribe'))}</span>`;
         }
       } catch (err) {
-        setSubscribeProgress(false);
         statusEl.className = 'sa-feed-add-status error';
         statusEl.textContent = t('rssSubscribeFailed');
         submitBtn.disabled = false;
@@ -1425,7 +1362,6 @@
     });
 
     function closeAddDialog() {
-      setSubscribeProgress(false);
       if (addDialogEl) {
         addDialogEl.remove();
         addDialogEl = null;

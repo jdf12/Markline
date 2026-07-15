@@ -55,10 +55,15 @@ const rssUnreadBadge = document.getElementById('rssUnreadBadge');
 // ===== 推送通知设置 DOM 引用 =====
 const pushEnabledToggle = document.getElementById('pushEnabledToggle');
 const pushStrategySelect = document.getElementById('pushStrategySelect');
-const pushMinIntervalInput = document.getElementById('pushMinIntervalInput');
-const pushDailyLimitInput = document.getElementById('pushDailyLimitInput');
+const pushDailySendAtInput = document.getElementById('pushDailySendAtInput');
+const pushDigestStyleSelect = document.getElementById('pushDigestStyleSelect');
+const pushDigestMaxInput = document.getElementById('pushDigestMaxInput');
+const pushDigestAiWarnRow = document.getElementById('pushDigestAiWarnRow');
+const pushDigestAiConfigLink = document.getElementById('pushDigestAiConfigLink');
 const pushQuietStartInput = document.getElementById('pushQuietStartInput');
 const pushQuietEndInput = document.getElementById('pushQuietEndInput');
+const pushKeywordsIncludeInput = document.getElementById('pushKeywordsIncludeInput');
+const pushKeywordsExcludeInput = document.getElementById('pushKeywordsExcludeInput');
 const pushEmailToInput = document.getElementById('pushEmailToInput');
 const pushFromInput = document.getElementById('pushFromInput');
 const pushProviderSelect = document.getElementById('pushProviderSelect');
@@ -77,6 +82,10 @@ const pushClearApiKeyBtn = document.getElementById('pushClearApiKeyBtn');
 const pushHttpEndpointInput = document.getElementById('pushHttpEndpointInput');
 const pushHttpAuthTypeSelect = document.getElementById('pushHttpAuthTypeSelect');
 const pushTestBtn = document.getElementById('pushTestBtn');
+const pushFlushNowBtn = document.getElementById('pushFlushNowBtn');
+const pushDiagBtn = document.getElementById('pushDiagBtn');
+const pushClearHistoryBtn = document.getElementById('pushClearHistoryBtn');
+const pushHistoryList = document.getElementById('pushHistoryList');
 const pushProviderTypeRadios = document.querySelectorAll('input[name="pushProviderType"]');
 const pushBridgeStatusText = document.getElementById('pushBridgeStatusText');
 const pushBridgeCheckBtn = document.getElementById('pushBridgeCheckBtn');
@@ -213,6 +222,10 @@ navItems.forEach(item => {
     // 首次打开统计面板时加载数据
     if (panelId === 'stats') {
       loadStatsPanel();
+    }
+    // 首次打开语音面板时加载设置并检测桥接
+    if (panelId === 'voice') {
+      loadVoiceSettings();
     }
   });
 });
@@ -1772,11 +1785,15 @@ async function loadPushSettings() {
     const res = await chrome.runtime.sendMessage({ action: 'pushGetSettings' });
     const s = (res && res.settings) || {};
     pushEnabledToggle.checked = !!s.enabled;
-    pushStrategySelect.value = s.strategy || 'batch30';
-    pushMinIntervalInput.value = s.minIntervalMin ?? 30;
-    pushDailyLimitInput.value = s.dailyLimit ?? 20;
+    pushStrategySelect.value = s.strategy === 'instant' ? 'instant' : 'daily';
+    pushDailySendAtInput.value = s.dailySendAt || '08:00';
+    // 摘要样式（仅 daily 生效）
+    pushDigestStyleSelect.value = (s.digest && s.digest.style === 'list') ? 'list' : 'briefing';
+    pushDigestMaxInput.value = s.digest?.maxItems || 30;
     pushQuietStartInput.value = s.quietHours?.start || '';
     pushQuietEndInput.value = s.quietHours?.end || '';
+    pushKeywordsIncludeInput.value = (s.keywords?.include || []).join(', ');
+    pushKeywordsExcludeInput.value = (s.keywords?.exclude || []).join(', ');
     pushEmailToInput.value = s.email?.to || '';
     // 过滤掉预设地址：若是服务商默认地址则不恢复到输入框，让 placeholder 正常显示
     const savedFrom = s.email?.from || '';
@@ -1809,16 +1826,69 @@ async function loadPushSettings() {
     await refreshPushCredStatus();
 
     updatePushFieldsVisibility();
+    updateStrategyVisibility();
+    updateDigestVisibility();
     updatePushTestButtonState();
     updateFromPlaceholder();
+    // 加载发送历史
+    loadPushHistory();
   } catch {
     pushEnabledToggle.checked = false;
-    pushStrategySelect.value = 'batch30';
+    pushStrategySelect.value = 'daily';
+    pushDigestStyleSelect.value = 'briefing';
+    pushDigestMaxInput.value = 30;
     document.querySelector('input[name="pushProviderType"][value="http"]').checked = true;
     pushProviderSelect.value = 'resend';
     updatePushFieldsVisibility();
+    updateStrategyVisibility();
+    updateDigestVisibility();
     updatePushTestButtonState();
     updateFromPlaceholder();
+  }
+}
+
+// 根据当前 strategy 显隐 dailySendAt / quietHours 字段
+function updateStrategyVisibility() {
+  const strategy = pushStrategySelect.value;
+  const isDaily = strategy === 'daily';
+  const isInstant = strategy === 'instant';
+  document.querySelectorAll('.push-daily-only').forEach(el => {
+    el.classList.toggle('is-visible', isDaily);
+  });
+  document.querySelectorAll('.push-instant-only').forEach(el => {
+    el.classList.toggle('is-visible', isInstant);
+  });
+  // daily/instant 切换时同步刷新摘要区域显隐
+  updateDigestVisibility();
+}
+
+// 根据摘要样式显隐 maxItems + AI 未配置警告
+// briefing 模式下显示 maxItems；若 AI 未配置则显示警告条
+// list 模式下隐藏 maxItems 和警告条
+async function updateDigestVisibility() {
+  const strategy = pushStrategySelect.value;
+  const style = pushDigestStyleSelect.value;
+  const isBriefing = strategy === 'daily' && style === 'briefing';
+  // maxItems 行仅在 briefing 模式显示
+  const maxRow = document.getElementById('pushDigestMaxRow');
+  if (maxRow) maxRow.style.display = isBriefing ? '' : 'none';
+  // AI 未配置警告：仅 briefing 模式下检查
+  if (isBriefing) {
+    const aiConfigured = await checkAIConfigured();
+    if (pushDigestAiWarnRow) pushDigestAiWarnRow.style.display = aiConfigured ? 'none' : '';
+  } else {
+    if (pushDigestAiWarnRow) pushDigestAiWarnRow.style.display = 'none';
+  }
+}
+
+// 检测 AI 分类服务是否已配置（读 chrome.storage.local）
+async function checkAIConfigured() {
+  try {
+    const r = await chrome.storage.local.get('ai_classifier_config');
+    const cfg = r.ai_classifier_config || {};
+    return !!(cfg.enabled && cfg.apiKey);
+  } catch {
+    return false;
   }
 }
 
@@ -1833,22 +1903,45 @@ pushEnabledToggle.addEventListener('change', () => {
 });
 pushStrategySelect.addEventListener('change', () => {
   savePushSettings({ strategy: pushStrategySelect.value });
+  updateStrategyVisibility();
 });
-pushMinIntervalInput.addEventListener('change', () => {
-  const v = Math.max(0, Math.min(1440, parseInt(pushMinIntervalInput.value) || 0));
-  pushMinIntervalInput.value = v;
-  savePushSettings({ minIntervalMin: v });
+pushDailySendAtInput.addEventListener('change', () => {
+  savePushSettings({ dailySendAt: pushDailySendAtInput.value || '08:00' });
 });
-pushDailyLimitInput.addEventListener('change', () => {
-  const v = Math.max(0, Math.min(100, parseInt(pushDailyLimitInput.value) || 0));
-  pushDailyLimitInput.value = v;
-  savePushSettings({ dailyLimit: v });
+pushDigestStyleSelect.addEventListener('change', () => {
+  savePushSettings({ digest: { style: pushDigestStyleSelect.value, aiEnabled: pushDigestStyleSelect.value === 'briefing' } });
+  updateDigestVisibility();
 });
+pushDigestMaxInput.addEventListener('change', () => {
+  let v = parseInt(pushDigestMaxInput.value, 10);
+  if (isNaN(v)) v = 30;
+  v = Math.min(Math.max(v, 10), 50);
+  pushDigestMaxInput.value = v;
+  savePushSettings({ digest: { maxItems: v } });
+});
+// 警告条"去配置"链接：切换到 AI 分类设置面板
+if (pushDigestAiConfigLink) {
+  pushDigestAiConfigLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    const aiNav = document.querySelector('.nav-item[data-panel="ai"]');
+    if (aiNav) aiNav.click();
+  });
+}
 pushQuietStartInput.addEventListener('change', () => {
   savePushSettings({ quietHours: { start: pushQuietStartInput.value, end: pushQuietEndInput.value } });
 });
 pushQuietEndInput.addEventListener('change', () => {
   savePushSettings({ quietHours: { start: pushQuietStartInput.value, end: pushQuietEndInput.value } });
+});
+// 关键词过滤：逗号分隔转数组
+function _parseKeywords(str) {
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+pushKeywordsIncludeInput.addEventListener('change', () => {
+  savePushSettings({ keywords: { include: _parseKeywords(pushKeywordsIncludeInput.value), exclude: _parseKeywords(pushKeywordsExcludeInput.value) } });
+});
+pushKeywordsExcludeInput.addEventListener('change', () => {
+  savePushSettings({ keywords: { include: _parseKeywords(pushKeywordsIncludeInput.value), exclude: _parseKeywords(pushKeywordsExcludeInput.value) } });
 });
 pushEmailToInput.addEventListener('change', () => {
   savePushSettings({ email: { to: pushEmailToInput.value.trim() } });
@@ -2014,6 +2107,119 @@ pushTestBtn.addEventListener('click', async () => {
   } finally {
     pushTestBtn.disabled = false;
     pushTestBtn.innerHTML = original;
+  }
+});
+
+// ===== 立即发送队列 =====
+pushFlushNowBtn.addEventListener('click', async () => {
+  pushFlushNowBtn.disabled = true;
+  const original = pushFlushNowBtn.innerHTML;
+  pushFlushNowBtn.innerHTML = '<span>' + (i18n('pushFlushing') || '发送中...') + '</span>';
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushFlushNow' });
+    if (res && res.ok) {
+      showToast((i18n('pushFlushSuccess') || '已发送 $1 篇').replace('$1', String(res.sent || 0)), 'success');
+    } else if (res && res.skipped) {
+      const reason = res.reason === 'empty_queue' ? '队列为空' : (res.reason === 'filtered_out' ? '全部被关键词过滤' : res.reason);
+      showToast(i18n('pushFlushSkipped') || '跳过: ' + reason, 'info');
+    } else if (res && res.retrying) {
+      showToast(i18n('pushFlushRetry') || '发送失败，将自动重试', 'error');
+    } else {
+      const err = (res && res.error) || 'unknown';
+      showToast((i18n('pushFlushFailed') || '发送失败: $1').replace('$1', err), 'error');
+    }
+    // 刷新历史
+    loadPushHistory();
+  } catch (e) {
+    showToast((i18n('pushFlushFailed') || '发送失败: $1').replace('$1', e.message), 'error');
+  } finally {
+    pushFlushNowBtn.disabled = false;
+    pushFlushNowBtn.innerHTML = original;
+  }
+});
+
+// ===== 诊断：查看 alarm 状态 =====
+pushDiagBtn.addEventListener('click', async () => {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushGetAlarmStatus' });
+    if (!res || !res.success) {
+      showToast('诊断失败: ' + (res?.error || 'unknown'), 'error');
+      return;
+    }
+    const lines = [];
+    lines.push('每日摘要 Alarm: ' + (res.dailyAlarm ? res.dailyAlarm.scheduledTime : '❌ 未创建'));
+    if (res.dailyAlarm) lines.push('  周期: ' + res.dailyAlarm.periodInMinutes + ' 分钟');
+    lines.push('重试 Alarm: ' + (res.retryAlarm ? res.retryAlarm.scheduledTime : '无'));
+    lines.push('静默结束 Alarm: ' + (res.quietEndAlarm ? res.quietEndAlarm.scheduledTime : '无'));
+    lines.push('队列长度: ' + res.queueLength + ' 篇');
+    lines.push('历史记录: ' + res.historyLength + ' 条');
+    if (res.lastHistory) {
+      lines.push('最近一次: ' + (res.lastHistory.status === 'success' ? '✓' : '✗') + ' ' + new Date(res.lastHistory.time).toLocaleString());
+    }
+    // 如果 daily 模式但 alarm 不存在，提示重建
+    const needRebuild = !res.dailyAlarm;
+    if (needRebuild) {
+      lines.push('\n⚠️ 每日摘要 Alarm 缺失！点击"确定"后自动重建。');
+    }
+    alert(lines.join('\n'));
+    // 自动重建
+    if (needRebuild) {
+      await chrome.runtime.sendMessage({ action: 'pushRebuildAlarms' });
+      showToast('已重建定时器', 'success');
+    }
+  } catch (e) {
+    showToast('诊断失败: ' + e.message, 'error');
+  }
+});
+
+// ===== 发送历史 =====
+async function loadPushHistory() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'pushGetHistory' });
+    if (!res || !res.success) return;
+    renderPushHistory(res.history || []);
+  } catch {}
+}
+
+function renderPushHistory(history) {
+  if (!pushHistoryList) return;
+  if (!history || history.length === 0) {
+    pushHistoryList.innerHTML = `<div class="push-empty-hint">${i18n('pushHistoryEmpty') || '暂无发送记录'}</div>`;
+    return;
+  }
+  pushHistoryList.innerHTML = history.map(h => {
+    const time = new Date(h.time).toLocaleString();
+    const isSuccess = h.status === 'success';
+    const statusClass = isSuccess ? 'push-history-status--success' : 'push-history-status--failed';
+    const statusText = isSuccess ? '✓' : '✗';
+    const countText = h.count ? `${h.count} 篇` : '';
+    const errText = (!isSuccess && h.error) ? `<span class="push-history-error">${_escHtml(h.error)}</span>` : '';
+    return `
+      <div class="push-history-item">
+        <span class="push-history-status ${statusClass}">${statusText}</span>
+        <span class="push-history-time">${time}</span>
+        <span class="push-history-count">${countText}</span>
+        ${errText}
+      </div>`;
+  }).join('');
+}
+
+function _escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+pushClearHistoryBtn.addEventListener('click', async () => {
+  try {
+    await chrome.runtime.sendMessage({ action: 'pushClearHistory' });
+    showToast(i18n('pushHistoryCleared') || '历史已清空', 'success');
+    loadPushHistory();
+  } catch {}
+});
+
+// 监听 push_history 存储变化，实时刷新历史列表
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.push_history) {
+    loadPushHistory();
   }
 });
 
@@ -2814,6 +3020,352 @@ chrome.runtime.onMessage.addListener((message) => {
     const panel = document.getElementById('panel-activelearning');
     if (panel && panel.classList.contains('active')) {
       loadActiveLearning();
+    }
+  }
+});
+
+// ===== 语音朗读设置 =====
+
+let _voiceSettingsLoaded = false;
+let _voicePreviewAudio = null;
+let _voicePreviewObjectUrl = null;
+let _voicePreviewMediaSource = null;
+
+async function loadVoiceSettings() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'voiceGetSettings' });
+    const s = (res && res.settings) || {};
+
+    const portInput = document.getElementById('voiceBridgePort');
+    const voiceSelect = document.getElementById('voiceDefaultVoiceSelect');
+    const localeFilter = document.getElementById('voiceLocaleFilter');
+    const rateSel = document.getElementById('voiceRateSelect');
+    const pitchSel = document.getElementById('voicePitchSelect');
+    const volumeSel = document.getElementById('voiceVolumeSelect');
+    const maxCharsInput = document.getElementById('voiceMaxChars');
+    const asyncThresholdInput = document.getElementById('voiceAsyncThreshold');
+    const autoExtractToggle = document.getElementById('voiceAutoExtractToggle');
+
+    if (portInput) portInput.value = s.bridgePort || 7822;
+    if (voiceSelect) voiceSelect.value = s.defaultVoice || 'zh-CN-XiaoxiaoNeural';
+    if (localeFilter) localeFilter.value = '';
+    if (rateSel) rateSel.value = s.rate || '+0%';
+    if (pitchSel) pitchSel.value = s.pitch || '+0Hz';
+    if (volumeSel) volumeSel.value = s.volume || '+0%';
+    if (maxCharsInput) maxCharsInput.value = s.maxChars || 30000;
+    if (asyncThresholdInput) asyncThresholdInput.value = s.asyncThreshold || 3000;
+    if (autoExtractToggle) autoExtractToggle.checked = (s.autoExtract !== false);
+
+    // 绑定事件（仅绑定一次）
+    if (!_voiceSettingsLoaded) {
+      _bindVoiceSettingsEvents();
+      _voiceSettingsLoaded = true;
+    }
+
+    // 检测桥接状态
+    _checkVoiceBridge();
+  } catch (e) {
+    console.error('loadVoiceSettings error:', e);
+  }
+}
+
+function _bindVoiceSettingsEvents() {
+  const refreshBtn = document.getElementById('voiceBridgeRefresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', _checkVoiceBridge);
+
+  const refreshVoicesBtn = document.getElementById('voiceRefreshVoices');
+  if (refreshVoicesBtn) refreshVoicesBtn.addEventListener('click', _refreshVoiceList);
+
+  const portInput = document.getElementById('voiceBridgePort');
+  if (portInput) {
+    portInput.addEventListener('change', async () => {
+      const port = parseInt(portInput.value, 10);
+      if (!port || port < 1024 || port > 65535) {
+        showToast(i18n('voicePortInvalid') || '端口范围 1024-65535', 'error');
+        portInput.value = 7822;
+        return;
+      }
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { bridgePort: port } });
+      showToast(i18n('settingsSaved') || 'Saved', 'success');
+      _checkVoiceBridge();
+    });
+  }
+
+  const voiceSelect = document.getElementById('voiceDefaultVoiceSelect');
+  if (voiceSelect) {
+    voiceSelect.addEventListener('change', async () => {
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { defaultVoice: voiceSelect.value } });
+      showToast(i18n('settingsSaved') || 'Saved', 'success');
+    });
+  }
+
+  const rateSel = document.getElementById('voiceRateSelect');
+  if (rateSel) {
+    rateSel.addEventListener('change', async () => {
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { rate: rateSel.value } });
+    });
+  }
+
+  const pitchSel = document.getElementById('voicePitchSelect');
+  if (pitchSel) {
+    pitchSel.addEventListener('change', async () => {
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { pitch: pitchSel.value } });
+    });
+  }
+
+  const volumeSel = document.getElementById('voiceVolumeSelect');
+  if (volumeSel) {
+    volumeSel.addEventListener('change', async () => {
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { volume: volumeSel.value } });
+    });
+  }
+
+  const maxCharsInput = document.getElementById('voiceMaxChars');
+  if (maxCharsInput) {
+    maxCharsInput.addEventListener('change', async () => {
+      const v = parseInt(maxCharsInput.value, 10);
+      if (!v || v < 1000) {
+        maxCharsInput.value = 30000;
+        return;
+      }
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { maxChars: v } });
+    });
+  }
+
+  const asyncThresholdInput = document.getElementById('voiceAsyncThreshold');
+  if (asyncThresholdInput) {
+    asyncThresholdInput.addEventListener('change', async () => {
+      const v = parseInt(asyncThresholdInput.value, 10);
+      if (!v || v < 500) {
+        asyncThresholdInput.value = 3000;
+        return;
+      }
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { asyncThreshold: v } });
+    });
+  }
+
+  const autoExtractToggle = document.getElementById('voiceAutoExtractToggle');
+  if (autoExtractToggle) {
+    autoExtractToggle.addEventListener('change', async () => {
+      await chrome.runtime.sendMessage({ action: 'voiceSetSettings', patch: { autoExtract: autoExtractToggle.checked } });
+    });
+  }
+
+  const previewBtn = document.getElementById('voicePreviewBtn');
+  if (previewBtn) {
+    previewBtn.addEventListener('click', _previewVoice);
+  }
+
+  const localeFilter = document.getElementById('voiceLocaleFilter');
+  if (localeFilter) {
+    localeFilter.addEventListener('change', _refreshVoiceList);
+  }
+}
+
+async function _checkVoiceBridge() {
+  const text = document.getElementById('voiceBridgeStatusText');
+  const versionEl = document.getElementById('voiceBridgeVersion');
+  if (!text) return;
+
+  // 复用推送面板的 push-bridge-status 状态徽标样式
+  text.className = 'push-bridge-status push-bridge-status--checking';
+  text.textContent = i18n('voiceBridgeChecking') || '检测中…';
+  if (versionEl) versionEl.textContent = '';
+
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'voiceBridgeHealth' });
+    if (res && res.ok && res.running) {
+      text.className = 'push-bridge-status push-bridge-status--ok';
+      text.textContent = i18n('voiceBridgeOnline') || '运行中';
+      if (versionEl) versionEl.textContent = `v${res.version || ''}`;
+    } else {
+      text.className = 'push-bridge-status push-bridge-status--error';
+      text.textContent = i18n('voiceBridgeOffline') || '未运行';
+    }
+  } catch {
+    text.className = 'push-bridge-status push-bridge-status--error';
+    text.textContent = i18n('voiceBridgeOffline') || '未运行';
+  }
+}
+
+async function _refreshVoiceList() {
+  const voiceSelect = document.getElementById('voiceDefaultVoiceSelect');
+  const localeFilter = document.getElementById('voiceLocaleFilter');
+  if (!voiceSelect) return;
+  const locale = localeFilter ? localeFilter.value : '';
+
+  showToast(i18n('voiceLoadingVoices') || '正在加载音色列表...', 'info');
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'voiceListVoices', locale });
+    if (!res || !res.ok) {
+      showToast(i18n('voiceLoadFailed') || '加载失败', 'error');
+      return;
+    }
+    const voices = res.voices || [];
+    if (voices.length === 0) {
+      showToast(i18n('voiceNoVoices') || '无可用音色', 'warning');
+      return;
+    }
+    // 保留当前选中值
+    const cur = voiceSelect.value;
+    voiceSelect.innerHTML = '';
+    for (const v of voices) {
+      const opt = document.createElement('option');
+      opt.value = v.ShortName;
+      const gender = v.Gender === 'Female' ? '女' : (v.Gender === 'Male' ? '男' : v.Gender);
+      opt.textContent = `${v.ShortName} (${v.FriendlyName || ''} · ${gender})`;
+      voiceSelect.appendChild(opt);
+    }
+    // 尝试恢复选中
+    if ([...voiceSelect.options].some(o => o.value === cur)) {
+      voiceSelect.value = cur;
+    }
+    showToast(i18n('voiceVoicesLoaded') || `已加载 ${voices.length} 个音色`, 'success');
+  } catch (e) {
+    showToast((i18n('voiceLoadFailed') || '加载失败') + ': ' + e.message, 'error');
+  }
+}
+
+async function _previewVoice() {
+  const voiceSelect = document.getElementById('voiceDefaultVoiceSelect');
+  const previewBtn = document.getElementById('voicePreviewBtn');
+  if (!voiceSelect) return;
+  const voice = voiceSelect.value;
+
+  if (previewBtn) {
+    previewBtn.disabled = true;
+    previewBtn.textContent = i18n('voicePreviewing') || '合成中...';
+  }
+
+  // 清理上一次的预览
+  if (_voicePreviewAudio) {
+    _voicePreviewAudio.pause();
+    _voicePreviewAudio = null;
+  }
+  if (_voicePreviewObjectUrl) {
+    try { URL.revokeObjectURL(_voicePreviewObjectUrl); } catch {}
+    _voicePreviewObjectUrl = null;
+  }
+  if (_voicePreviewMediaSource) {
+    try {
+      if (_voicePreviewMediaSource.readyState === 'open') {
+        _voicePreviewMediaSource.endOfStream();
+      }
+    } catch {}
+    _voicePreviewMediaSource = null;
+  }
+
+  try {
+    const settings = await chrome.runtime.sendMessage({ action: 'voiceGetSettings' });
+    const port = (settings && settings.settings && settings.settings.bridgePort) || 7822;
+    const base = `http://127.0.0.1:${port}`;
+
+    const sampleText = '欢迎使用 Markline 语音朗读功能。这是一段示例文本，用于试听当前音色效果。';
+    const resp = await fetch(`${base}/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: sampleText, voice })
+    });
+
+    if (!resp.ok) {
+      let err = `http_${resp.status}`;
+      try { const j = await resp.json(); if (j && j.error) err = j.error; } catch {}
+      showToast((i18n('voiceSynthFailed') || '合成失败') + ': ' + err, 'error');
+      return;
+    }
+
+    // 检查是否返回了 JSON 错误
+    const ctype = resp.headers.get('Content-Type') || '';
+    if (ctype.includes('application/json')) {
+      const j = await resp.json();
+      showToast((i18n('voiceSynthFailed') || '合成失败') + ': ' + (j.error || 'unknown'), 'error');
+      return;
+    }
+
+    // 流式播放：用 MediaSource 边接收边播放
+    const canUseMSE = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
+    if (canUseMSE) {
+      const mediaSource = new MediaSource();
+      const objectUrl = URL.createObjectURL(mediaSource);
+      _voicePreviewMediaSource = mediaSource;
+      _voicePreviewObjectUrl = objectUrl;
+      _voicePreviewAudio = new Audio(objectUrl);
+
+      mediaSource.addEventListener('sourceopen', () => {
+        const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+        const reader = resp.body.getReader();
+
+        const pump = async () => {
+          try {
+            const { done, value } = await reader.read();
+            if (done) {
+              if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+              return;
+            }
+            const append = () => {
+              try { sourceBuffer.appendBuffer(value); }
+              catch (e) {
+                if (mediaSource.readyState === 'open') {
+                  try { mediaSource.endOfStream('decode'); } catch {}
+                }
+              }
+            };
+            if (sourceBuffer.updating) {
+              sourceBuffer.addEventListener('updateend', append, { once: true });
+            } else {
+              append();
+            }
+          } catch (e) {
+            if (mediaSource.readyState === 'open') {
+              try { mediaSource.endOfStream('decode'); } catch {}
+            }
+          }
+        };
+
+        sourceBuffer.addEventListener('updateend', () => {
+          if (mediaSource.readyState === 'open') pump();
+        });
+        pump();
+      }, { once: true });
+
+      _voicePreviewAudio.play().catch(() => {});
+      _voicePreviewAudio.addEventListener('ended', () => {
+        try { URL.revokeObjectURL(objectUrl); } catch {}
+        _voicePreviewObjectUrl = null;
+        _voicePreviewMediaSource = null;
+      });
+    } else {
+      // 回退：完整下载后播放
+      const blob = await resp.blob();
+      if (!blob || blob.size === 0) {
+        showToast(i18n('voiceSynthFailed') || '合成失败: empty audio', 'error');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      _voicePreviewObjectUrl = objectUrl;
+      _voicePreviewAudio = new Audio(objectUrl);
+      _voicePreviewAudio.play().catch(() => {});
+      _voicePreviewAudio.addEventListener('ended', () => {
+        try { URL.revokeObjectURL(objectUrl); } catch {}
+        _voicePreviewObjectUrl = null;
+      });
+    }
+  } catch (e) {
+    showToast((i18n('voiceSynthFailed') || '合成失败') + ': ' + e.message, 'error');
+  } finally {
+    if (previewBtn) {
+      previewBtn.disabled = false;
+      previewBtn.textContent = i18n('voicePreviewBtn') || '试听样本';
+    }
+  }
+}
+
+// 监听语音设置变化（其他窗口修改时同步）
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.voice_settings) {
+    const panel = document.getElementById('panel-voice');
+    if (panel && panel.classList.contains('active')) {
+      loadVoiceSettings();
     }
   }
 });

@@ -2416,6 +2416,22 @@ async function startApp() {
     mdiManager = new MDIWindowManager(mdiDesktopArea, mdiTaskbar, { maxWindows: 8 });
   }
 
+  // 语音朗读播放器初始化（与 MDI 窗口管理器联动）
+  if (window.VoicePlayer) {
+    window.VoicePlayer.init();
+    // 订阅状态变更：同步所有 MDI 窗口的朗读按钮 UI
+    window.VoicePlayer.onStateChange(() => {
+      if (mdiManager && typeof mdiManager.syncVoiceButtons === 'function') {
+        mdiManager.syncVoiceButtons();
+      }
+    });
+    // 桥接就绪后立即同步一次（移除按钮禁用态）
+    setTimeout(async () => {
+      await window.VoicePlayer.checkBridge();
+      if (mdiManager) mdiManager.syncVoiceButtons();
+    }, 1000);
+  }
+
   // 主题切换按钮
   const themeBtn = document.getElementById('saThemeBtn');
   if (themeBtn) themeBtn.addEventListener('click', toggleTheme);

@@ -846,5 +846,237 @@
   "aiLogTime": {
     "message": "Time",
     "description": "AI log time label"
+  },
+  "mdiVoice": {
+    "message": "Read Aloud",
+    "description": "MDI window voice button tooltip"
+  },
+  "voiceSection": {
+    "message": "Voice Reading",
+    "description": "Voice panel nav item"
+  },
+  "voiceSectionDesc": {
+    "message": "Read web pages in MDI windows aloud. Uses local edge-tts bridge; text never leaves your machine.",
+    "description": "Voice panel description"
+  },
+  "voiceCardBridge": {
+    "message": "Bridge Service Status",
+    "description": "Voice card 1 title"
+  },
+  "voiceBridgeChecking": {
+    "message": "Checking...",
+    "description": "Bridge checking status"
+  },
+  "voiceBridgeOnline": {
+    "message": "Running",
+    "description": "Bridge running"
+  },
+  "voiceBridgeOffline": {
+    "message": "Not Running",
+    "description": "Bridge not running"
+  },
+  "voiceBridgeRecheck": {
+    "message": "Recheck",
+    "description": "Bridge recheck button"
+  },
+  "voiceBridgePort": {
+    "message": "Bridge Port",
+    "description": "Bridge port label"
+  },
+  "voiceBridgePortDesc": {
+    "message": "voice_bridge.py listen port, default 7822",
+    "description": "Bridge port description"
+  },
+  "voiceBridgeStartup": {
+    "message": "Startup Command",
+    "description": "Bridge startup command label"
+  },
+  "voiceBridgeStatus": {
+    "message": "Bridge Status",
+    "description": "Bridge status label"
+  },
+  "voiceBridgeStatusDesc": {
+    "message": "Voice synthesis requires the local bridge program (voice_bridge.py) to be running",
+    "description": "Bridge status description"
+  },
+  "voiceBridgeInstallHint": {
+    "message": "Bridge not detected? Run in bridge directory: pip install -r requirements-voice.txt, then python voice_bridge.py",
+    "description": "Bridge install hint"
+  },
+  "voiceCardVoice": {
+    "message": "Default Voice",
+    "description": "Voice card 2 title"
+  },
+  "voiceDefaultVoice": {
+    "message": "Voice",
+    "description": "Default voice label"
+  },
+  "voiceDefaultVoiceDesc": {
+    "message": "edge-tts neural voice. Chinese voices recommended for Chinese content.",
+    "description": "Default voice description"
+  },
+  "voiceLocaleFilter": {
+    "message": "Locale Filter",
+    "description": "Voice locale filter label"
+  },
+  "voiceLocaleFilterDesc": {
+    "message": "Fetch voices of this locale from bridge",
+    "description": "Voice locale filter description"
+  },
+  "voiceLocaleZhCN": {
+    "message": "Chinese",
+    "description": "Chinese option"
+  },
+  "voiceLocaleEnUS": {
+    "message": "English (US)",
+    "description": "English option"
+  },
+  "voiceLocaleJaJP": {
+    "message": "Japanese",
+    "description": "Japanese option"
+  },
+  "voiceLocaleKoKR": {
+    "message": "Korean",
+    "description": "Korean option"
+  },
+  "voiceLocaleAll": {
+    "message": "All",
+    "description": "All locales option"
+  },
+  "voiceRefreshVoices": {
+    "message": "Refresh List",
+    "description": "Refresh voices button"
+  },
+  "voicePreview": {
+    "message": "Preview",
+    "description": "Preview label"
+  },
+  "voicePreviewDesc": {
+    "message": "Synthesize a sample with current voice",
+    "description": "Preview description"
+  },
+  "voicePreviewBtn": {
+    "message": "Preview Sample",
+    "description": "Preview button"
+  },
+  "voicePreviewing": {
+    "message": "Synthesizing...",
+    "description": "Preview synthesizing"
+  },
+  "voiceCardParams": {
+    "message": "Reading Parameters",
+    "description": "Voice card 3 title"
+  },
+  "voiceRate": {
+    "message": "Rate",
+    "description": "Rate label"
+  },
+  "voiceRateDesc": {
+    "message": "-50% slow ~ +100% fast",
+    "description": "Rate description"
+  },
+  "voicePitch": {
+    "message": "Pitch",
+    "description": "Pitch label"
+  },
+  "voicePitchDesc": {
+    "message": "edge-tts pitch offset",
+    "description": "Pitch description"
+  },
+  "voiceVolume": {
+    "message": "Volume",
+    "description": "Volume label"
+  },
+  "voiceVolumeDesc": {
+    "message": "Volume adjustment",
+    "description": "Volume description"
+  },
+  "voiceMaxChars": {
+    "message": "Max Characters",
+    "description": "Max chars label"
+  },
+  "voiceMaxCharsDesc": {
+    "message": "Truncate beyond this length to avoid synthesizing overly long text",
+    "description": "Max chars description"
+  },
+  "voiceCardExtract": {
+    "message": "Content Extraction",
+    "description": "Voice card 4 title"
+  },
+  "voiceAutoExtract": {
+    "message": "Auto Extract Article (Readability)",
+    "description": "Auto extract toggle"
+  },
+  "voiceAutoExtractDesc": {
+    "message": "When off, the entire page text (including nav/ads) will be read",
+    "description": "Auto extract description"
+  },
+  "voiceAsyncThreshold": {
+    "message": "Async Threshold",
+    "description": "Async threshold label"
+  },
+  "voiceAsyncThresholdDesc": {
+    "message": "Segments longer than this use async synthesis (avoids HTTP timeout)",
+    "description": "Async threshold description"
+  },
+  "voicePrivacyHint": {
+    "message": "Audio synthesis runs entirely on the local bridge. Text is sent only to 127.0.0.1, never external.",
+    "description": "Voice privacy hint"
+  },
+  "voicePortInvalid": {
+    "message": "Port range 1024-65535",
+    "description": "Port invalid toast"
+  },
+  "voiceLoadingVoices": {
+    "message": "Loading voice list...",
+    "description": "Loading voices toast"
+  },
+  "voiceLoadFailed": {
+    "message": "Load failed",
+    "description": "Load voices failed"
+  },
+  "voiceNoVoices": {
+    "message": "No voices available",
+    "description": "No voices hint"
+  },
+  "voiceVoicesLoaded": {
+    "message": "Voices loaded",
+    "description": "Voices loaded toast"
+  },
+  "voiceSynthFailed": {
+    "message": "Synthesis failed",
+    "description": "Synthesis failed toast"
+  },
+  "voicePlay": {
+    "message": "Play",
+    "description": "Play button tooltip"
+  },
+  "voiceStop": {
+    "message": "Stop",
+    "description": "Stop button tooltip"
+  },
+  "voiceReading": {
+    "message": "Reading",
+    "description": "Reading state"
+  },
+  "voiceFetching": {
+    "message": "Fetching page...",
+    "description": "Fetching page"
+  },
+  "voiceSynthesizing": {
+    "message": "Synthesizing",
+    "description": "Synthesizing audio"
+  },
+  "voiceBridgeNotRunning": {
+    "message": "Voice bridge not running. Please start voice_bridge.py first.",
+    "description": "Bridge not running toast"
+  },
+  "voiceEmptyContent": {
+    "message": "No content to read on this page",
+    "description": "Empty content toast"
+  },
+  "voiceFetchFailed": {
+    "message": "Failed to fetch page",
+    "description": "Fetch failed toast"
   }
 }

@@ -372,9 +372,9 @@
       }
     }
 
-    // 通知上层（feed-notifier 会监听）
+    // 通知上层（feed-notifier 会监听，await 确保推送入队完成后再返回）
     if (typeof global.onFeedPollComplete === 'function') {
-      try { global.onFeedPollComplete(results); } catch { /* ignore */ }
+      try { await global.onFeedPollComplete(results); } catch { /* ignore */ }
     }
     // 广播数据变化
     FeedStore._broadcast('rssDataChanged', { results });

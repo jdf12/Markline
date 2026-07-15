@@ -51,7 +51,13 @@ const API_FORMATS = {
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }]
     }),
-    parseResponse: (json) => json.content?.[0]?.text,
+    parseResponse: (json) => {
+      // 找 type === 'text' 的块；忽略 thinking 等其它类型
+      const block = Array.isArray(json.content)
+        ? json.content.find(b => b && b.type === 'text')
+        : null;
+      return block?.text;
+    },
     normalizeEndpoint: (baseUrl) => {
       let url = baseUrl.replace(/\/+$/, '');
       if (!url.endsWith('/v1/messages')) url += '/v1/messages';

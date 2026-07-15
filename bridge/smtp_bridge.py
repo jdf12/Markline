@@ -275,17 +275,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
             # 连接 SMTP 服务器并发送
             log("info", f"正在连接 SMTP 服务器 {host}:{port} ...")
             connect_t0 = time.time()
-            if tls == "ssl":
-                # 隐式 SSL（465 端口）
-                server = smtplib.SMTP_SSL(host, port, timeout=20)
-            else:
-                # 明文或 STARTTLS（587 端口）
-                server = smtplib.SMTP(host, port, timeout=20)
-                server.ehlo()
-                if tls == "starttls":
-                    log("debug", "启动 STARTTLS 升级...")
-                    server.starttls()
+            # 用 socket.setdefaulttimeout 给 SSL 握手加全局超时兜底
+            # smtplib 的 timeout 只控制 TCP 连接，不控制 SSL 握手
+            # 某些服务器 SSL 握手会无限卡住，setdefaulttimeout 能覆盖所有 socket 操作
+            import socket as _socket
+            _old_timeout = _socket.getdefaulttimeout()
+            _socket.setdefaulttimeout(20)
+            try:
+                if tls == "ssl":
+                    # 隐式 SSL（465 端口）
+                    server = smtplib.SMTP_SSL(host, port, timeout=20)
+                else:
+                    # 明文或 STARTTLS（587 端口）
+                    server = smtplib.SMTP(host, port, timeout=20)
                     server.ehlo()
+                    if tls == "starttls":
+                        log("debug", "启动 STARTTLS 升级...")
+                        server.starttls()
+                        server.ehlo()
+            finally:
+                _socket.setdefaulttimeout(_old_timeout)
             connect_ms = int((time.time() - connect_t0) * 1000)
             log("info", f"SMTP 服务器连接成功 (耗时 {connect_ms}ms)")
 

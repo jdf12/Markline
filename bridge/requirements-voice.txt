@@ -1,0 +1,8 @@
+# Markline Voice Bridge 依赖
+# 用途：edge-tts 语音合成桥接程序
+# 安装：pip install -r bridge/requirements-voice.txt
+#
+# Python 版本要求：3.8+
+
+edge-tts>=6.1.0
+aiohttp>=3.8.0

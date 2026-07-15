@@ -1,0 +1,439 @@
+/* pages/standalone/voice-player.css
+   浮动语音播放器样式
+   - 卡片式设计 + 毛玻璃背景 + 可拖拽手柄
+   - 复用 standalone.css 的设计 token（--bg-*, --text-*, --accent 等）
+   - 自动适配深色主题
+*/
+
+/* ===== 浮动播放器容器 ===== */
+.voice-player {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;                 /* 避开 MDI 任务栏（约 40px 高） */
+  transform: translateX(-50%);
+  z-index: 10000;
+  width: min(680px, calc(100vw - 32px));
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-medium, #e2e8f0);
+  border-radius: var(--radius-lg, 14px);
+  box-shadow:
+    0 10px 30px rgba(60, 64, 67, .18),
+    0 2px 8px rgba(60, 64, 67, .08);
+  padding: 0;
+  transition: opacity 200ms ease, box-shadow 200ms ease;
+  opacity: 1;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* 拖拽中禁用过渡，避免位置跟随滞后 */
+.voice-player--dragging {
+  transition: none;
+  cursor: grabbing;
+  box-shadow:
+    0 16px 40px rgba(60, 64, 67, .28),
+    0 4px 12px rgba(60, 64, 67, .12);
+  user-select: none;
+}
+
+.voice-player--hidden {
+  display: none;
+}
+
+/* ===== 顶部拖拽手柄区 ===== */
+.voice-player__handle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 6px;
+  cursor: grab;
+  border-bottom: 1px solid var(--border-light, #f1f3f4);
+  background: var(--bg-secondary, #f8f9fa);
+}
+
+.voice-player--dragging .voice-player__handle {
+  cursor: grabbing;
+}
+
+.voice-player__handle:active {
+  cursor: grabbing;
+}
+
+/* 左侧：朗读图标 + 标题 */
+.voice-player__handle-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-player__handle-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--accent, #1a73e8);
+}
+
+/* 波形柱子（默认静止状态，由 JS 动态修改 y1/y2） */
+.voice-player__bar {
+  transition: y1 60ms linear, y2 60ms linear;
+}
+
+/* 朗读中时图标颜色带轻微脉动 */
+.voice-player__waveform--active {
+  animation: voice-wave-pulse 2s ease-in-out infinite;
+}
+
+@keyframes voice-wave-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+.voice-player__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #202124);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* 右侧：关闭按钮 */
+.voice-player__close {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, #80868b);
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 150ms);
+  margin-left: 8px;
+}
+
+.voice-player__close:hover {
+  background: var(--danger-light, #fce8e6);
+  color: var(--danger, #d93025);
+  transform: rotate(90deg);
+}
+
+.voice-player__close:active {
+  transform: rotate(90deg) scale(0.92);
+}
+
+.voice-player__close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ===== 主体控制区 ===== */
+.voice-player__main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+}
+
+/* ===== 播放/暂停按钮 ===== */
+.voice-player__play {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent, #1a73e8);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 150ms);
+  box-shadow: 0 2px 6px rgba(26, 115, 232, .3);
+}
+
+.voice-player__play:hover {
+  background: var(--accent-hover, #1765cc);
+  transform: scale(1.06);
+  box-shadow: 0 4px 10px rgba(26, 115, 232, .4);
+}
+
+.voice-player__play:active {
+  transform: scale(0.96);
+}
+
+.voice-player__play svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 播放图标向右偏移一点视觉居中 */
+.voice-player__play--play svg {
+  transform: translateX(1px);
+}
+
+/* ===== 信息区（歌词 + 进度条 + 时间） ===== */
+.voice-player__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ===== 歌词滚动区 ===== */
+.voice-player__lyrics {
+  height: 24px;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  /* 两端渐隐遮罩，营造无限滚动感 */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+}
+
+.voice-player__lyrics-track {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 100%;
+  white-space: nowrap;
+  /* 句子级滚动：切换句子时平滑过渡到新位置 */
+  transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.voice-player__lyrics-item {
+  font-size: 12.5px;
+  color: var(--text-tertiary, #80868b);
+  opacity: 0.55;
+  transition: color 200ms ease, opacity 200ms ease, transform 200ms ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.voice-player__lyrics-item:hover {
+  opacity: 0.85;
+  color: var(--text-secondary, #5f6368);
+}
+
+/* 当前朗读的句子高亮 */
+.voice-player__lyrics-item--active {
+  color: var(--accent, #1a73e8);
+  opacity: 1;
+  font-weight: 600;
+  transform: scale(1.04);
+}
+
+.voice-player__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-player__progress-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-tertiary, #e8eaed);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: height var(--transition-fast, 150ms);
+}
+
+.voice-player__progress-bar:hover {
+  height: 7px;
+}
+
+.voice-player__progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent, #1a73e8), var(--accent-hover, #4f9bf8));
+  border-radius: 3px;
+  transition: width 100ms linear;
+  position: relative;
+}
+
+/* 进度条末端小圆点 */
+.voice-player__progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #1a73e8);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+  opacity: 0;
+  transition: opacity var(--transition-fast, 150ms);
+}
+
+.voice-player__progress-bar:hover .voice-player__progress-fill::after {
+  opacity: 1;
+}
+
+.voice-player__time {
+  font-size: 11px;
+  color: var(--text-tertiary, #80868b);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 78px;
+  text-align: right;
+  letter-spacing: 0.2px;
+}
+
+/* ===== 右侧控制区 ===== */
+.voice-player__controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-player__rate {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-medium, #dadce0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary, #f8f9fa);
+  color: var(--text-primary, #202124);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.voice-player__rate:hover {
+  border-color: var(--accent, #1a73e8);
+  background: var(--bg-primary, #ffffff);
+}
+
+.voice-player__rate:focus {
+  border-color: var(--accent, #1a73e8);
+  box-shadow: 0 0 0 3px var(--accent-light, #e8f0fe);
+}
+
+/* ===== MDI 窗口标题栏朗读按钮 ===== */
+.mdi-btn--voice {
+  color: var(--text-secondary, #5f6368);
+}
+
+.mdi-btn--voice:hover {
+  background: var(--accent-light, #e8f0fe);
+  color: var(--accent, #1a73e8);
+}
+
+.mdi-btn--voice--active {
+  color: var(--accent, #1a73e8);
+  background: var(--accent-light, #e8f0fe);
+}
+
+.mdi-btn--voice--active:hover {
+  background: var(--accent-light, #e8f0fe);
+  color: var(--accent, #1a73e8);
+}
+
+.mdi-btn--voice--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mdi-btn--voice--disabled:hover {
+  background: transparent;
+  color: var(--text-secondary, #5f6368);
+}
+
+/* ===== 暗色主题适配 ===== */
+body.theme-dark .voice-player {
+  background: rgba(32, 33, 36, .92);
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, .5),
+    0 2px 8px rgba(0, 0, 0, .3);
+}
+
+body.theme-dark .voice-player__handle {
+  background: rgba(255, 255, 255, .04);
+  border-bottom-color: rgba(255, 255, 255, .08);
+}
+
+body.theme-dark .voice-player__progress-bar {
+  background: rgba(255, 255, 255, .12);
+}
+
+body.theme-dark .voice-player__rate {
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(255, 255, 255, .15);
+  color: var(--text-primary, #e8eaed);
+}
+
+body.theme-dark .voice-player__rate:hover {
+  background: rgba(255, 255, 255, .1);
+}
+
+body.theme-dark .voice-player__close:hover {
+  background: rgba(217, 48, 37, .2);
+}
+
+body.theme-dark .voice-player__lyrics-item {
+  color: var(--text-tertiary, #9aa0a6);
+}
+
+body.theme-dark .voice-player__lyrics-item--active {
+  color: var(--accent, #8ab4f8);
+}
+
+/* ===== 响应式：窄屏 ===== */
+@media (max-width: 600px) {
+  .voice-player {
+    width: calc(100vw - 16px);
+    bottom: 48px;
+  }
+
+  .voice-player__main {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .voice-player__play {
+    width: 36px;
+    height: 36px;
+  }
+
+  .voice-player__title {
+    font-size: 12px;
+  }
+
+  .voice-player__time {
+    min-width: 68px;
+    font-size: 10px;
+  }
+
+  .voice-player__rate {
+    font-size: 11px;
+    padding: 0 6px;
+    height: 28px;
+  }
+}
