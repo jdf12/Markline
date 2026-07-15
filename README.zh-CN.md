@@ -86,6 +86,53 @@ Markline（取自 **Mark** + **Book** + time**line**）是一款 Manifest V3 的
 ### 💾 导入 / 导出
 - **JSON**（完整数据）与 **Netscape HTML**（浏览器兼容）两种格式。
 
+### 📖 独立阅读窗口
+- 一个专注的**阅读窗口**（从弹窗右上角 ⋮ 菜单 → "打开面板" 打开），把 Markline 变成沉浸式阅读器。
+- **MDI 桌面** —— 在一个窗口内打开多个网页为可拖动悬浮子窗口，并排阅读多篇文章。
+- 每个子窗口都带**朗读**按钮、**收藏**按钮与悬停**预览**卡片。
+- 内置 **RSS** 标签页，无需离开窗口即可阅读已订阅的资讯。
+
+### 🔊 语音朗读（文字转语音）
+- 通过 **edge-tts**（微软免费神经网络语音）把任意 MDI 网页朗读出来。
+- 由一个轻量**本地桥接程序**（`bridge/voice_bridge.py`，`127.0.0.1:7822`）提供支持 —— 唯一的对外流量是发给微软 TTS 服务，其余数据绝不离开本机。
+- **真正的流式播放**：音频在合成完成前就开始播放（MediaSource API），并配合 edge-tts 的 `WordBoundary` 时间戳生成**逐字字幕**轨道，随朗读实时滚动。
+- 基于 Web Audio API 分析节点的**波形可视化**。
+- 可配置**音色、语速、音调、音量**；自动用 Readability 提取正文，跳过导航与广告。
+- 长文会分段并**异步合成**，且**预合成**下一段以保证播放连贯。
+- 在**设置 → 语音**中配置。需先运行本地语音桥接（见[本地桥接程序](#本地桥接程序可选)）。
+
+### 📰 RSS 订阅与阅读
+- 订阅 RSS/Atom 源，在独立窗口的 RSS 面板或弹窗中阅读。
+- 按可配置间隔轮询；**未读角标**、标记已读、**加星**、**存为书签**（自动打标签）。
+- 在访问的页面上**自动发现** feed（右键菜单 / 当前页检测）。
+- 可选的**新文章桌面通知**。
+- 针对网络不可达的源提供**代理兜底**（rss2json 风格或原始 XML 代理）。
+- 在**设置 → RSS** 中配置。
+
+### 📧 邮箱推送（RSS → 收件箱）
+- 把 RSS 新文章推送到你的邮箱，再也不错过更新。
+- 两种策略：**即时**（新闻出现即按源发一封）或**每日摘要**（在设定时间合并为一封）。
+- **服务商**：HTTP API（Resend / SendGrid / Mailgun / 自定义）或经由本地桥接的 **SMTP**（`bridge/smtp_bridge.py`，`127.0.0.1:7821`）—— 支持 Gmail、QQ、163、Outlook 等。
+- **AI 每日早报**（可选）：配置 AI 供应商后，每日摘要会由所选模型重写为分类的科技资讯早报（要点 + 主题分组）。
+- **静默时段**、跨源**去重**、关键词**包含/排除**过滤。
+- API Key 与 SMTP 授权码**加密存储**，仅在发送时于内存中解密。
+- 在**设置 → 推送**中配置。
+
+---
+
+## 🖥️ 本地桥接程序（可选）
+
+Markline 本身是纯客户端，但受 MV3 Service Worker 限制（无法运行 Python、无法直连 TCP 套接字），有两个功能需要本地小程序辅助：
+
+| 桥接程序 | 端口 | 用途 | 启动命令 |
+| --- | --- | --- | --- |
+| `bridge/voice_bridge.py` | `127.0.0.1:7822` | edge-tts 语音合成 | `pip install -r bridge/requirements-voice.txt && python bridge/voice_bridge.py` |
+| `bridge/smtp_bridge.py` | `127.0.0.1:7821` | 邮件推送的 SMTP 中继 | `python bridge/smtp_bridge.py` |
+
+两者都**只监听 `127.0.0.1`** —— 绝不会暴露到外网。桥接程序不持久化任何文本、音频或凭证；SMTP 授权码仅在发送期间暂存于内存。
+
+环境要求：语音桥接需 Python 3.8+，SMTP 桥接需 Python 3.7+；语音桥接另需 `edge-tts` + `aiohttp`，无其他依赖。
+
 ---
 
 ## 🚀 安装方式
@@ -99,6 +146,8 @@ Markline（取自 **Mark** + **Book** + time**line**）是一款 Manifest V3 的
 5. 工具栏出现 Markline 图标 —— 建议固定以便访问。
 
 > 要求 Chrome 102+（Manifest V3、`chrome.scripting`、`chrome.alarms`）。
+
+> **语音与邮箱推送（可选）：** 这两项功能需要本地 Python 桥接程序。一行命令即可启动，详见[本地桥接程序](#本地桥接程序可选)。
 
 ---
 
@@ -120,12 +169,23 @@ Markline（取自 **Mark** + **Book** + time**line**）是一款 Manifest V3 的
 ```
 chrome-bookmark-timeline/
 ├── manifest.json              # MV3 清单
+├── rules/
+│   └── frame_allow.json       # declarativeNetRequest：允许在 MDI 中嵌入页面
 ├── icons/                     # 16 / 48 / 128 PNG
 ├── _locales/
 │   ├── en/messages.json       # 英文
 │   └── zh_CN/messages.json    # 简体中文
+├── bridge/                    # 本地 Python 桥接程序（可选）
+│   ├── voice_bridge.py        # edge-tts 语音合成服务（127.0.0.1:7822）
+│   ├── smtp_bridge.py         # SMTP 中继服务（127.0.0.1:7821）
+│   └── requirements-voice.txt # edge-tts + aiohttp
 ├── background/
-│   ├── background.js          # Service Worker（同步、增删改、检查、闹钟、Omnibox）
+│   ├── background.js          # Service Worker（同步、增删改、检查、闹钟、Omnibox、RSS、推送）
+│   ├── voice-bridge-client.js # 语音桥接 HTTP 客户端
+│   ├── push-channel.js        # RSS → 邮箱推送（即时 / 每日，AI 早报）
+│   ├── feed-fetcher.js        # RSS 轮询调度
+│   ├── feed-notifier.js       # 新文章通知
+│   ├── feed-discover.js       # 访问页面时自动发现 feed
 │   ├── preview-extractor.js   # Readability 预览抓取与缓存
 │   └── vendor/
 │       ├── Readability.js      # Mozilla Readability
@@ -138,12 +198,16 @@ chrome-bookmark-timeline/
 │   ├── ai-tagger.js           # 可选云端 AI 层
 │   ├── ai-logger.js           # AI 分类日志
 │   ├── bookmark-stats.js      # 统计与健康分
-│   └── simple-charts.js       # 手写 SVG 图表
+│   ├── simple-charts.js       # 手写 SVG 图表
+│   ├── rss-parser.js          # RSS/Atom 解析
+│   ├── feed-store.js          # RSS 源/文章存储
+│   └── voice-store.js         # 语音设置存储
 └── pages/
     ├── popup/                 # 主时间线弹窗
-    ├── settings/              # 多面板设置页
+    ├── settings/              # 多面板设置页（含 RSS / 推送 / 语音）
     ├── checker/               # 失效书签检查页
-    └── graph/                # 知识图谱 + 复习
+    ├── graph/                # 知识图谱 + 复习
+    └── standalone/            # 独立阅读窗口（MDI + RSS + 语音播放器）
 ```
 
 ---
@@ -161,7 +225,8 @@ chrome-bookmark-timeline/
 | `history` | 补充点击数统计 |
 | `notifications` | 保存/检查的桌面通知 |
 | `scripting` | 注入 Readability 用于预览与打标签 |
-| `<all_urls>`（host） | 在任意站点抓取预览、检查链接 |
+| `declarativeNetRequest` | 移除 `X-Frame-Options`/CSP，使页面可在 MDI 阅读窗口中加载 |
+| `<all_urls>`（host） | 在任意站点抓取预览、检查链接、轮询 RSS 源 |
 
 所有数据都**本地**保存在你的设备上。除非你显式启用并配置 AI 供应商，否则不会上传任何内容 —— 即使启用，也仅发送标题与 URL。
 
@@ -187,6 +252,9 @@ chrome-bookmark-timeline/
   - [Cytoscape.js](https://js.cytoscape.org/) —— 知识图谱
 - **自研模块** —— i18n、smart-tagger、ai-tagger、ai-logger、bookmark-stats、simple-charts
 - **可选 AI 供应商** —— 智谱 GLM-4-Flash、DeepSeek、Google Gemini、OpenAI、阿里通义、自定义
+- **本地桥接程序**（可选 Python 小程序，除 `edge-tts`/`aiohttp` 外无需其他依赖）：
+  - `bridge/voice_bridge.py` —— edge-tts 神经网络语音合成（文字转语音）
+  - `bridge/smtp_bridge.py` —— 邮件推送的 SMTP 中继
 
 ---
 
@@ -219,6 +287,8 @@ chrome-bookmark-timeline/
 - 所有书签数据、标签、设置与缓存均本地存储于 `chrome.storage.local`。
 - 本扩展**不**收集任何分析或遥测数据。
 - **AI 功能完全可选。** 启用时，仅向所选供应商发送书签**标题与 URL** —— 绝不发送页面内容。API Key 本地存储，绝不同步。
+- **语音朗读**会把你选择朗读的页面文本，经由本地 `127.0.0.1` 上的 `voice_bridge.py` 发送给微软 edge-tts 服务。桥接程序不持久化任何内容 —— 文本与音频都不会写入磁盘。
+- **邮箱推送（SMTP）**通过本地 `127.0.0.1` 上的 `smtp_bridge.py` 中转邮件；SMTP 凭证加密存储，仅在发送期间暂存于内存。
 - Readability 提取**在本地浏览器内**完成，用于打标签和生成预览；提取的文本不会离开你的设备，除非你自行粘贴到别处。
 
 ---
