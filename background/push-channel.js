@@ -482,21 +482,19 @@
   // 发送窗口：daily 模式下只发送最近 30 小时的文章，覆盖国外源的时区差异
   //   （北京时间 22:00 发送时，美西是前一天 06:00，30 小时窗口能覆盖欧美主要源）
   let _flushRetryCount = 0;
-  let _isFlushing = false;  // 内存锁：防止并发 flushQueue（AI 生成耗时长，SW 重启可能导致重复触发）
+  let _flushingPromise = null;  // 共享 Promise：并发调用 flushQueue 会 await 同一个，避免 _onAlarm 被锁挡住导致 SW 被 Chrome 杀死
   const DIGEST_WINDOW_MS = 30 * 60 * 60 * 1000;  // 30 小时
 
   async function flushQueue() {
-    // 内存锁：同一 SW 实例内防止并发（peek→send→drain 模式下并发会导致重复发送）
-    if (_isFlushing) {
-      console.info('[Push] flushQueue: already in progress, skipping');
-      return { ok: false, skipped: true, reason: 'already_flushing' };
+    // 并发调用返回同一个 Promise：_onAlarm await 正在进行的 flush → Chrome 保持 SW 存活
+    if (_flushingPromise) {
+      console.info('[Push] flushQueue: already in progress, awaiting same promise');
+      return _flushingPromise;
     }
-    _isFlushing = true;
-    try {
-      return await _flushQueueInner();
-    } finally {
-      _isFlushing = false;
-    }
+    _flushingPromise = _flushQueueInner().finally(() => {
+      _flushingPromise = null;
+    });
+    return _flushingPromise;
   }
 
   async function _flushQueueInner() {
@@ -1079,12 +1077,19 @@ ${JSON.stringify(articles)}
       if (alarm.name === ALARM_DAILY) {
         // daily 模式：先触发 RSS 轮询拿最新文章，再 flush
         _dailyFlushAttemptedDate = new Date().toDateString();  // 标记今天已由 alarm 处理
-        console.info('[Push] daily alarm: triggering RSS poll before flush');
-        if (typeof global.FeedFetcher !== 'undefined' && global.FeedFetcher.pollAll) {
-          await global.FeedFetcher.pollAll();  // pollAll 内部会调用 onPollComplete → enqueueItems
+        // 若 _checkMissedDailyFlush 已经启动了 flush（SW 启动时竞态），直接 await 同一个 Promise
+        // 避免重复 pollAll，且 Chrome 会因 _onAlarm await 而保持 SW 存活直到 flush 完成
+        if (_flushingPromise) {
+          console.info('[Push] daily alarm: flush already in progress (from _checkMissedDailyFlush), awaiting');
+          await _flushingPromise;
+        } else {
+          console.info('[Push] daily alarm: triggering RSS poll before flush');
+          if (typeof global.FeedFetcher !== 'undefined' && global.FeedFetcher.pollAll) {
+            await global.FeedFetcher.pollAll();  // pollAll 内部会调用 onPollComplete → enqueueItems
+          }
+          // 等待入队完成后 flush
+          await flushQueue();
         }
-        // 等待入队完成后 flush
-        await flushQueue();
       } else if (alarm.name === 'push-quiet-end') {
         await flushQueue();
       } else if (alarm.name === ALARM_RETRY) {
@@ -1119,6 +1124,9 @@ ${JSON.stringify(articles)}
   async function _init() {
     if (typeof chrome === 'undefined' || !chrome.alarms) return;
     chrome.alarms.onAlarm.addListener(_onAlarm);
+
+    // 清理旧版本残留的持久化锁（已改用 in-memory _flushingPromise）
+    chrome.storage.local.remove('push_flush_started_at').catch(() => {});
 
     const settings = await PushStore.getSettings();
     console.info('[Push] _init: enabled=', settings.enabled, 'strategy=', settings.strategy, 'dailySendAt=', settings.dailySendAt);
@@ -1169,10 +1177,9 @@ ${JSON.stringify(articles)}
 
   // ===== 错过每日发送的补偿逻辑 =====
   // SW 在 dailySendAt 时未运行 → alarm 不会触发 → 启动时检测并补偿
-  // 持久化时间戳 push_flush_started_at 防止 SW 重启后重复触发（AI 生成耗时长，第一次 flush 可能还没完成）
-  const FLUSH_STARTED_KEY = 'push_flush_started_at';
-  const FLUSH_TIMEOUT_MS = 5 * 60 * 1000;  // 5 分钟超时：AI 生成最长 90s + SMTP 60s，5 分钟足够
-
+  // 防重复机制：in-memory _dailyFlushAttemptedDate + history 成功记录检查 + _flushingPromise
+  //   - _flushingPromise：同一 SW 实例内并发调用 flushQueue 会 await 同一个 Promise（_onAlarm 场景）
+  //   - SW 被杀重启后 _flushingPromise 为 null，history 检查决定是否重试（发送成功则跳过）
   async function _checkMissedDailyFlush(settings) {
     const now = new Date();
     const [dh, dm] = (settings.dailySendAt || '08:00').split(':').map(Number);
@@ -1194,17 +1201,6 @@ ${JSON.stringify(articles)}
       return;
     }
 
-    // 持久化锁：检查是否有最近 5 分钟内启动的 flush（跨 SW 重启防护）
-    // 场景：第一次 _checkMissedDailyFlush 触发 flushQueue，AI 生成期间 SW 被终止重启，
-    //       history 中还没有成功记录，但 flush 确实在进行中
-    const flushState = await chrome.storage.local.get(FLUSH_STARTED_KEY);
-    const flushStartedAt = flushState[FLUSH_STARTED_KEY];
-    if (flushStartedAt && (Date.now() - flushStartedAt) < FLUSH_TIMEOUT_MS) {
-      _dailyFlushAttemptedDate = todayStr;
-      console.info('[Push] _checkMissedDailyFlush: flush already in progress (started', Math.round((Date.now() - flushStartedAt) / 1000), 's ago), skip compensation');
-      return;
-    }
-
     // 是否有待处理的重试 alarm（避免与重试机制冲突导致重复发送）
     const retryAlarm = await chrome.alarms.get(ALARM_RETRY);
     if (retryAlarm) {
@@ -1214,19 +1210,15 @@ ${JSON.stringify(articles)}
     }
 
     _dailyFlushAttemptedDate = todayStr;
-    // 写入持久化时间戳，防止 SW 重启后重复触发
-    await chrome.storage.local.set({ [FLUSH_STARTED_KEY]: Date.now() });
     console.info('[Push] _checkMissedDailyFlush: detected missed daily send, compensating with pollAll + flushQueue');
     try {
       if (typeof global.FeedFetcher !== 'undefined' && global.FeedFetcher.pollAll) {
         await global.FeedFetcher.pollAll();  // 先轮询拿最新文章（与 alarm 处理器一致）
       }
+      // flushQueue 内部通过 _flushingPromise 防并发；若 _onAlarm 同时触发，会 await 同一个 Promise
       await flushQueue();
     } catch (e) {
       console.warn('[Push] _checkMissedDailyFlush error:', e.message, e.stack);
-    } finally {
-      // 清除持久化锁
-      await chrome.storage.local.remove(FLUSH_STARTED_KEY);
     }
   }
 
