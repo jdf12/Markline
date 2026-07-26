@@ -150,7 +150,7 @@ const pendingReviewsList = document.getElementById('pendingReviewsList');
 // ===== 通知设置 DOM 引用 =====
 const notificationEnabledToggle = document.getElementById('notificationEnabledToggle');
 
-// ===== AI 辅助分类 DOM 引用 =====
+// ===== AI 辅助 DOM 引用 =====
 const aiEnabledToggle = document.getElementById('aiEnabledToggle');
 const aiProviderSelect = document.getElementById('aiProviderSelect');
 const aiApiKeyInput = document.getElementById('aiApiKeyInput');
@@ -531,7 +531,7 @@ async function refreshRssUnreadBadge() {
 // 用于在自定义和内置 provider 之间切换时临时保留字段值
 let _aiProviderInputCache = {};
 
-// ===== AI 辅助分类设置 =====
+// ===== AI 辅助设置 =====
 async function loadAISettings() {
   try {
     const res = await chrome.runtime.sendMessage({ action: 'getAIConfig' });
@@ -938,7 +938,7 @@ function toggleAILogs() {
 }
 
 async function clearAILogsUI() {
-  if (!confirm(i18n('aiClearLogsConfirm') || 'Clear all AI classification logs?')) return;
+  if (!confirm(i18n('aiClearLogsConfirm') || 'Clear all AI assistant logs?')) return;
   try {
     const res = await chrome.runtime.sendMessage({ action: 'clearAILogs' });
     const ok = res && res.success;
@@ -1190,7 +1190,7 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-// ===== AI 辅助分类事件绑定 =====
+// ===== AI 辅助事件绑定 =====
 if (aiEnabledToggle) {
   aiEnabledToggle.addEventListener('change', onAIEnabledToggle);
 }

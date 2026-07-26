@@ -11,6 +11,33 @@
   const SETTINGS_KEY = 'rss_settings';
   const ITEMS_KEY_PREFIX = 'rss_items_'; // rss_items_<feedId>
 
+  // ===== 批量写入模式 =====
+  // pollAll 等批量场景下开启，所有 updateFeed/upsertItems 写入缓存到内存，
+  // commitBatch 时一次性 chrome.storage.local.set，使 onChanged 只触发一次，
+  // 避免 N 个 feed 串行拉取时触发 N 次完整 UI 渲染导致抖动
+  let _batchMode = false;
+  const _batchQueue = new Map(); // storage key -> value
+
+  function beginBatch() {
+    _batchMode = true;
+    _batchQueue.clear();
+  }
+
+  async function commitBatch() {
+    _batchMode = false;
+    if (_batchQueue.size === 0) return;
+    const obj = {};
+    for (const [k, v] of _batchQueue) obj[k] = v;
+    _batchQueue.clear();
+    // 一次性写入，触发一次 onChanged
+    await chrome.storage.local.set(obj);
+  }
+
+  // batch 模式下读操作优先取缓存，保证批量期间数据一致性
+  function _readBatch(key) {
+    return _batchMode ? _batchQueue.get(key) : undefined;
+  }
+
   const DEFAULT_SETTINGS = {
     pollIntervalMin: 30,        // 拉取间隔（分钟）：15 / 30 / 60
     autoDiscover: true,         // 自动嗅探当前页 RSS
@@ -38,6 +65,8 @@
 
   // ===== Feeds =====
   async function getAllFeeds() {
+    const cached = _readBatch(FEEDS_KEY);
+    if (cached) return cached;
     const r = await chrome.storage.local.get(FEEDS_KEY);
     return r[FEEDS_KEY] || [];
   }
@@ -74,7 +103,11 @@
       createdAt: Date.now()
     };
     feeds.push(feed);
-    await chrome.storage.local.set({ [FEEDS_KEY]: feeds });
+    if (_batchMode) {
+      _batchQueue.set(FEEDS_KEY, feeds);
+    } else {
+      await chrome.storage.local.set({ [FEEDS_KEY]: feeds });
+    }
     return { success: true, feed };
   }
 
@@ -83,15 +116,24 @@
     const idx = feeds.findIndex(f => f.id === id);
     if (idx < 0) return { success: false, error: 'not_found' };
     feeds[idx] = { ...feeds[idx], ...patch };
-    await chrome.storage.local.set({ [FEEDS_KEY]: feeds });
+    if (_batchMode) {
+      _batchQueue.set(FEEDS_KEY, feeds);
+    } else {
+      await chrome.storage.local.set({ [FEEDS_KEY]: feeds });
+    }
     return { success: true, feed: feeds[idx] };
   }
 
   async function removeFeed(id) {
     const feeds = await getAllFeeds();
     const next = feeds.filter(f => f.id !== id);
-    await chrome.storage.local.set({ [FEEDS_KEY]: next });
-    await chrome.storage.local.remove(ITEMS_KEY_PREFIX + id);
+    if (_batchMode) {
+      _batchQueue.set(FEEDS_KEY, next);
+      _batchQueue.delete(ITEMS_KEY_PREFIX + id);
+    } else {
+      await chrome.storage.local.set({ [FEEDS_KEY]: next });
+      await chrome.storage.local.remove(ITEMS_KEY_PREFIX + id);
+    }
     return { success: true };
   }
 
@@ -105,14 +147,21 @@
     const rest = feeds.filter(f => !idSet.has(f.id));
     present.sort((a, b) => (idxMap.get(a.id) ?? 0) - (idxMap.get(b.id) ?? 0));
     const next = [...present, ...rest];
-    await chrome.storage.local.set({ [FEEDS_KEY]: next });
+    if (_batchMode) {
+      _batchQueue.set(FEEDS_KEY, next);
+    } else {
+      await chrome.storage.local.set({ [FEEDS_KEY]: next });
+    }
     return { success: true, feeds: next };
   }
 
   // ===== Items =====
   async function getItems(feedId) {
-    const r = await chrome.storage.local.get(ITEMS_KEY_PREFIX + feedId);
-    return r[ITEMS_KEY_PREFIX + feedId] || [];
+    const key = ITEMS_KEY_PREFIX + feedId;
+    const cached = _readBatch(key);
+    if (cached) return cached;
+    const r = await chrome.storage.local.get(key);
+    return r[key] || [];
   }
 
   async function getAllItems() {
@@ -132,6 +181,7 @@
 
   // 增量写入：按 guid 去重，返回新增的条目数组
   async function upsertItems(feedId, newItems, maxItems) {
+    const key = ITEMS_KEY_PREFIX + feedId;
     const existing = await getItems(feedId);
     const guidSet = new Set(existing.map(i => i.guid));
     const added = [];
@@ -166,16 +216,25 @@
     if (existing.length > limit) {
       existing.length = limit;
     }
-    await chrome.storage.local.set({ [ITEMS_KEY_PREFIX + feedId]: existing });
+    if (_batchMode) {
+      _batchQueue.set(key, existing);
+    } else {
+      await chrome.storage.local.set({ [key]: existing });
+    }
     return added;
   }
 
   async function _patchItem(feedId, itemId, patch) {
+    const key = ITEMS_KEY_PREFIX + feedId;
     const items = await getItems(feedId);
     const it = items.find(i => i.id === itemId);
     if (!it) return { success: false, error: 'not_found' };
     Object.assign(it, patch);
-    await chrome.storage.local.set({ [ITEMS_KEY_PREFIX + feedId]: items });
+    if (_batchMode) {
+      _batchQueue.set(key, items);
+    } else {
+      await chrome.storage.local.set({ [key]: items });
+    }
     return { success: true, item: it };
   }
 
@@ -184,9 +243,14 @@
   }
 
   async function markAllRead(feedId) {
+    const key = ITEMS_KEY_PREFIX + feedId;
     const items = await getItems(feedId);
     for (const it of items) it.read = true;
-    await chrome.storage.local.set({ [ITEMS_KEY_PREFIX + feedId]: items });
+    if (_batchMode) {
+      _batchQueue.set(key, items);
+    } else {
+      await chrome.storage.local.set({ [key]: items });
+    }
     return { success: true };
   }
 
@@ -243,6 +307,7 @@
     setItemRead, markAllRead, markAllFeedsRead,
     setItemStarred, setItemBookmark,
     getUnreadCount, getTotalUnreadCount,
+    beginBatch, commitBatch,
     _broadcast
   };
 })(typeof self !== 'undefined' ? self : this);

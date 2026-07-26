@@ -75,6 +75,13 @@
       "count": { "content": "$1", "example": "12" }
     }
   },
+  "feedCount": {
+    "message": "$COUNT$ 个订阅源",
+    "description": "状态栏订阅源总数",
+    "placeholders": {
+      "count": { "content": "$1", "example": "5" }
+    }
+  },
   "untitled": {
     "message": "无标题",
     "description": "无标题书签默认名称"
@@ -576,19 +583,19 @@
     "description": "AI 辅助分类来源标识"
   },
   "aiSection": {
-    "message": "AI 辅助分类",
+    "message": "AI 辅助",
     "description": "AI 设置分区标题"
   },
   "aiSectionDesc": {
-    "message": "当规则引擎不确定时，调用云端 AI 辅助分类。仅发送标题和 URL，不发送正文。",
+    "message": "配置 AI 服务商后，可用于书签 AI 辅助分类、资讯邮件 AI 摘要等功能。仅发送必要的标题和 URL，不发送正文。",
     "description": "AI 设置分区说明"
   },
   "aiEnabled": {
-    "message": "启用 AI 辅助分类",
+    "message": "启用 AI 辅助",
     "description": "启用 AI 开关"
   },
   "aiEnabledDesc": {
-    "message": "对低置信度书签触发云端 AI 辅助分类",
+    "message": "启用后可使用 AI 辅助分类、资讯邮件摘要等功能",
     "description": "启用 AI 开关说明"
   },
   "aiProvider": {
@@ -752,7 +759,7 @@
     "description": "AI 隐私声明"
   },
   "aiLogsTitle": {
-    "message": "AI 辅助分类日志",
+    "message": "AI 辅助日志",
     "description": "AI 日志卡片标题"
   },
   "aiLogsStats": {
@@ -792,7 +799,7 @@
     "description": "AI 日志清空成功提示"
   },
   "aiClearLogsConfirm": {
-    "message": "确定清空所有 AI 辅助分类日志？",
+    "message": "确定清空所有 AI 辅助日志？",
     "description": "清空 AI 日志确认"
   },
   "aiLogTrigger": {

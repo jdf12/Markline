@@ -1,6 +1,6 @@
 // 引入 AI 增强层（需在 smart-tagger.js 之前加载，供其调用 classifyWithAI）
 importScripts('../shared/ai-tagger.js');
-// 引入 AI 辅助分类日志
+// 引入 AI 辅助日志
 importScripts('../shared/ai-logger.js');
 // 引入智能分类引擎
 importScripts('../shared/smart-tagger.js');

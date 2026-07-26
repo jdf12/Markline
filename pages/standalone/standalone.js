@@ -1530,6 +1530,12 @@ document.addEventListener('keydown', (e) => {
 
 // ===== 状态栏 =====
 function updateStatusBar() {
+  // RSS 视图激活时，显示订阅源总数而非书签数
+  if (window.FeedView && window.FeedView.isVisible()) {
+    const feeds = window.FeedView.getFeeds() || [];
+    saStatusFolder.textContent = i18n('feedCount', [String(feeds.length)]);
+    return;
+  }
   const filtered = getFilteredBookmarks();
   const parts = [i18n('bookmarkCount', [String(filtered.length)])];
   if (selectedFolderId) {
@@ -1594,6 +1600,11 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === 'bookmarkAdded' || msg.action === 'bookmarksUpdated' || msg.action === 'tagsUpdated') {
     refreshBookmarkData({ keepFilter: true });
   }
+});
+
+// 监听 RSS 订阅源数据变化（来自 FeedView），刷新状态栏
+document.addEventListener('feeds:loaded', () => {
+  if (window.FeedView && window.FeedView.isVisible()) updateStatusBar();
 });
 
 // 监听存储变化（主题/语言/预览/MDI）
@@ -2374,6 +2385,7 @@ function switchSidebarTab(tabName) {
       window.FeedView.show('all');
     }
   }
+  updateStatusBar();
 }
 
 // 隐藏所有书签视图容器

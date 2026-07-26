@@ -75,6 +75,13 @@
       "count": { "content": "$1", "example": "12" }
     }
   },
+  "feedCount": {
+    "message": "$COUNT$ feeds",
+    "description": "Total feed count in status bar",
+    "placeholders": {
+      "count": { "content": "$1", "example": "5" }
+    }
+  },
   "untitled": {
     "message": "Untitled",
     "description": "Default title for untitled bookmarks"
@@ -572,19 +579,19 @@
     "description": "AI assisted source badge"
   },
   "aiSection": {
-    "message": "AI Classification",
+    "message": "AI Assistant",
     "description": "AI settings section title"
   },
   "aiSectionDesc": {
-    "message": "Use cloud AI to assist tagging when the rule engine is uncertain. Only title and URL are sent, not page content.",
+    "message": "Once configured, the AI provider can be used for bookmark AI classification, newsletter AI summary, etc. Only necessary titles and URLs are sent, not page content.",
     "description": "AI settings section description"
   },
   "aiEnabled": {
-    "message": "Enable AI Classification",
+    "message": "Enable AI Assistant",
     "description": "Enable AI toggle"
   },
   "aiEnabledDesc": {
-    "message": "Trigger cloud AI for low-confidence bookmarks",
+    "message": "Enables AI classification, newsletter summary and other AI features",
     "description": "Enable AI toggle description"
   },
   "aiProvider": {
@@ -748,7 +755,7 @@
     "description": "AI privacy notice"
   },
   "aiLogsTitle": {
-    "message": "AI Classification Logs",
+    "message": "AI Assistant Logs",
     "description": "AI logs card title"
   },
   "aiLogsStats": {
@@ -788,7 +795,7 @@
     "description": "AI logs cleared message"
   },
   "aiClearLogsConfirm": {
-    "message": "Clear all AI classification logs?",
+    "message": "Clear all AI assistant logs?",
     "description": "Clear AI logs confirmation"
   },
   "aiLogTrigger": {

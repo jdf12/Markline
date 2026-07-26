@@ -340,6 +340,8 @@
   }
 
   // 拉取所有 feed。跳过连续失败且未到退避窗口的 feed。
+  // 使用批量写入模式：所有 feed 的 storage 写入缓存到内存，结束后一次性提交，
+  // 使 onChanged 只触发一次，避免 UI 在轮询期间多次重渲染导致抖动
   async function pollAll() {
     const feeds = await FeedStore.getAllFeeds();
     if (feeds.length === 0) return [];
@@ -349,27 +351,33 @@
     const intervalMs = (settings.pollIntervalMin || 30) * 60 * 1000;
     const results = [];
 
-    for (const feed of feeds) {
-      // 失败退避：failCount 越高，跳过越多轮
-      if (feed.failCount >= FAIL_SKIP_THRESHOLD) {
-        const skipMs = intervalMs * Math.min(feed.failCount - FAIL_SKIP_THRESHOLD + 1, 8);
-        if (feed.lastFetched && (now - feed.lastFetched) < skipMs) {
-          continue; // 跳过本轮
+    FeedStore.beginBatch();
+    try {
+      for (const feed of feeds) {
+        // 失败退避：failCount 越高，跳过越多轮
+        if (feed.failCount >= FAIL_SKIP_THRESHOLD) {
+          const skipMs = intervalMs * Math.min(feed.failCount - FAIL_SKIP_THRESHOLD + 1, 8);
+          if (feed.lastFetched && (now - feed.lastFetched) < skipMs) {
+            continue; // 跳过本轮
+          }
         }
-      }
-      const r = await fetchOne(feed);
-      results.push(r);
+        const r = await fetchOne(feed);
+        results.push(r);
 
-      // 自动书签：feed.autoBookmark 为 true 时，将新增文章自动存为书签
-      if (feed.autoBookmark && r.added && r.added.length > 0 && typeof self.saveRssArticleAsBookmark === 'function') {
-        for (const item of r.added) {
-          try {
-            await self.saveRssArticleAsBookmark(item, feed, settings);
-          } catch (e) {
-            console.warn('[RSS] auto-bookmark failed for', item.link, e.message);
+        // 自动书签：feed.autoBookmark 为 true 时，将新增文章自动存为书签
+        if (feed.autoBookmark && r.added && r.added.length > 0 && typeof self.saveRssArticleAsBookmark === 'function') {
+          for (const item of r.added) {
+            try {
+              await self.saveRssArticleAsBookmark(item, feed, settings);
+            } catch (e) {
+              console.warn('[RSS] auto-bookmark failed for', item.link, e.message);
+            }
           }
         }
       }
+    } finally {
+      // 无论是否异常，都必须提交批量写入（否则数据丢失）
+      await FeedStore.commitBatch();
     }
 
     // 通知上层（feed-notifier 会监听，await 确保推送入队完成后再返回）

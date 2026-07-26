@@ -176,6 +176,8 @@
       }
       renderFeedList();
       updateSidebarTabBadge();
+      // 通知外部（standalone.js 状态栏）订阅源数据已更新
+      document.dispatchEvent(new CustomEvent('feeds:loaded'));
     } catch (err) {
       console.warn('RSS load feeds failed:', err);
     }
