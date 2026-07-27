@@ -227,6 +227,10 @@ navItems.forEach(item => {
     if (panelId === 'voice') {
       loadVoiceSettings();
     }
+    // 首次打开翻译面板时加载配置
+    if (panelId === 'translate') {
+      loadTranslateSettings();
+    }
   });
 });
 
@@ -3369,3 +3373,320 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
   }
 });
+
+// ===== 网页翻译设置 =====
+
+let _translateSettingsLoaded = false;
+let _translateConfig = null;
+
+// ===== 加载翻译配置并填充 UI =====
+async function loadTranslateSettings() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'translateGetConfig' });
+    if (!res || !res.success || !res.config) {
+      console.warn('[Translate] load config failed:', res);
+      return;
+    }
+    _translateConfig = res.config;
+
+    // 基础设置
+    const enabledToggle = document.getElementById('translateEnabledToggle');
+    const engineSelect = document.getElementById('translateEngineSelect');
+    const langSelect = document.getElementById('translateLangSelect');
+    const sourceLangSelect = document.getElementById('translateSourceLangSelect');
+    const themeSelect = document.getElementById('translateThemeSelect');
+    const modeSelect = document.getElementById('translateModeSelect');
+    const hoverKeySelect = document.getElementById('translateHoverKeySelect');
+    if (enabledToggle) enabledToggle.checked = !!_translateConfig.enabled;
+    if (engineSelect) engineSelect.value = _translateConfig.engine || 'ai';
+    if (langSelect) langSelect.value = _translateConfig.targetLang || 'zh-CN';
+    if (sourceLangSelect) sourceLangSelect.value = _translateConfig.sourceLang || 'auto';
+    if (themeSelect) themeSelect.value = (_translateConfig.style && _translateConfig.style.theme) || 'none';
+    if (modeSelect) modeSelect.value = _translateConfig.defaultMode || 'bilingual';
+    if (hoverKeySelect) hoverKeySelect.value = _translateConfig.hoverHotkey || 'ctrlKey';
+
+    // 缓存与统计
+    const cacheToggle = document.getElementById('translateCacheToggle');
+    const glossaryToggle = document.getElementById('translateGlossaryToggle');
+    if (cacheToggle) cacheToggle.checked = _translateConfig.cacheEnabled !== false;
+    if (glossaryToggle) glossaryToggle.checked = _translateConfig.glossaryEnabled !== false;
+
+    // 智能摘要 & 脑图
+    const summaryLenSelect = document.getElementById('translateSummaryLenSelect');
+    const maxKeyPointsInput = document.getElementById('translateMaxKeyPointsInput');
+    const mindmapDepthSelect = document.getElementById('translateMindmapDepthSelect');
+    const mindmapLayoutSelect = document.getElementById('translateMindmapLayoutSelect');
+    if (summaryLenSelect) summaryLenSelect.value = (_translateConfig.summary && _translateConfig.summary.length) || 'medium';
+    if (maxKeyPointsInput) maxKeyPointsInput.value = (_translateConfig.summary && _translateConfig.summary.maxKeyPoints) || 5;
+    if (mindmapDepthSelect) mindmapDepthSelect.value = String((_translateConfig.mindmap && _translateConfig.mindmap.maxDepth) || 3);
+    if (mindmapLayoutSelect) mindmapLayoutSelect.value = (_translateConfig.mindmap && _translateConfig.mindmap.layout) || 'radial';
+
+    // 绑定事件（仅一次）
+    if (!_translateSettingsLoaded) {
+      _bindTranslateSettingsEvents();
+      _translateSettingsLoaded = true;
+    }
+
+    // 加载词汇本与统计
+    _loadGlossaryList();
+    _loadTranslateStats();
+  } catch (err) {
+    console.error('[Translate] loadTranslateSettings error:', err);
+  }
+}
+
+// ===== 保存配置（局部更新）=====
+async function _saveTranslateConfig(patch) {
+  if (!_translateConfig) return;
+  const newConfig = { ..._translateConfig, ...patch };
+  // 嵌套对象浅合并
+  if (patch.summary) newConfig.summary = { ...(_translateConfig.summary || {}), ...patch.summary };
+  if (patch.mindmap) newConfig.mindmap = { ...(_translateConfig.mindmap || {}), ...patch.mindmap };
+  if (patch.style) newConfig.style = { ...(_translateConfig.style || {}), ...patch.style };
+  if (patch.traditionalConfig) newConfig.traditionalConfig = { ...(_translateConfig.traditionalConfig || {}), ...patch.traditionalConfig };
+  _translateConfig = newConfig;
+  try {
+    await chrome.runtime.sendMessage({ action: 'translateSetConfig', config: newConfig });
+  } catch (err) {
+    console.error('[Translate] save config error:', err);
+  }
+}
+
+// ===== 绑定面板事件 =====
+function _bindTranslateSettingsEvents() {
+  const enabledToggle = document.getElementById('translateEnabledToggle');
+  if (enabledToggle) {
+    enabledToggle.addEventListener('change', () => {
+      _saveTranslateConfig({ enabled: enabledToggle.checked });
+    });
+  }
+
+  const engineSelect = document.getElementById('translateEngineSelect');
+  if (engineSelect) {
+    engineSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ engine: engineSelect.value });
+    });
+  }
+
+  const langSelect = document.getElementById('translateLangSelect');
+  if (langSelect) {
+    langSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ targetLang: langSelect.value });
+    });
+  }
+
+  const sourceLangSelect = document.getElementById('translateSourceLangSelect');
+  if (sourceLangSelect) {
+    sourceLangSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ sourceLang: sourceLangSelect.value });
+    });
+  }
+
+  const themeSelect = document.getElementById('translateThemeSelect');
+  if (themeSelect) {
+    themeSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ style: { theme: themeSelect.value } });
+    });
+  }
+
+  const modeSelect = document.getElementById('translateModeSelect');
+  if (modeSelect) {
+    modeSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ defaultMode: modeSelect.value });
+    });
+  }
+
+  const hoverKeySelect = document.getElementById('translateHoverKeySelect');
+  if (hoverKeySelect) {
+    hoverKeySelect.addEventListener('change', () => {
+      _saveTranslateConfig({ hoverHotkey: hoverKeySelect.value });
+    });
+  }
+
+  const cacheToggle = document.getElementById('translateCacheToggle');
+  if (cacheToggle) {
+    cacheToggle.addEventListener('change', () => {
+      _saveTranslateConfig({ cacheEnabled: cacheToggle.checked });
+    });
+  }
+
+  const glossaryToggle = document.getElementById('translateGlossaryToggle');
+  if (glossaryToggle) {
+    glossaryToggle.addEventListener('change', () => {
+      _saveTranslateConfig({ glossaryEnabled: glossaryToggle.checked });
+    });
+  }
+
+  // 智能摘要 & 脑图
+  const summaryLenSelect = document.getElementById('translateSummaryLenSelect');
+  if (summaryLenSelect) {
+    summaryLenSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ summary: { length: summaryLenSelect.value } });
+    });
+  }
+
+  const maxKeyPointsInput = document.getElementById('translateMaxKeyPointsInput');
+  if (maxKeyPointsInput) {
+    maxKeyPointsInput.addEventListener('change', () => {
+      const v = Math.max(3, Math.min(10, parseInt(maxKeyPointsInput.value, 10) || 5));
+      maxKeyPointsInput.value = v;
+      _saveTranslateConfig({ summary: { maxKeyPoints: v } });
+    });
+  }
+
+  const mindmapDepthSelect = document.getElementById('translateMindmapDepthSelect');
+  if (mindmapDepthSelect) {
+    mindmapDepthSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ mindmap: { maxDepth: parseInt(mindmapDepthSelect.value, 10) || 3 } });
+    });
+  }
+
+  const mindmapLayoutSelect = document.getElementById('translateMindmapLayoutSelect');
+  if (mindmapLayoutSelect) {
+    mindmapLayoutSelect.addEventListener('change', () => {
+      _saveTranslateConfig({ mindmap: { layout: mindmapLayoutSelect.value } });
+    });
+  }
+
+  // 统计刷新
+  const refreshStatsBtn = document.getElementById('translateRefreshStatsBtn');
+  if (refreshStatsBtn) {
+    refreshStatsBtn.addEventListener('click', _loadTranslateStats);
+  }
+
+  // 清空缓存
+  const clearCacheBtn = document.getElementById('translateClearCacheBtn');
+  if (clearCacheBtn) {
+    clearCacheBtn.addEventListener('click', async () => {
+      try {
+        const r = await chrome.runtime.sendMessage({ action: 'translateClearCache' });
+        if (r && r.success) {
+          showToast(i18n('translateCacheCleared') || '翻译缓存已清空', 'success');
+          _loadTranslateStats();
+        }
+      } catch (err) {
+        showToast(err.message || i18n('clearFailed'), 'error');
+      }
+    });
+  }
+
+  // 清空历史
+  const clearHistoryBtn = document.getElementById('translateClearHistoryBtn');
+  if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', async () => {
+      try {
+        const r = await chrome.runtime.sendMessage({ action: 'translateClearHistory' });
+        if (r && r.success) {
+          showToast(i18n('translateHistoryCleared') || '翻译历史已清空', 'success');
+        }
+      } catch (err) {
+        showToast(err.message || i18n('clearFailed'), 'error');
+      }
+    });
+  }
+
+  // 词汇本：添加
+  const glossaryAddBtn = document.getElementById('glossaryAddBtn');
+  if (glossaryAddBtn) {
+    glossaryAddBtn.addEventListener('click', async () => {
+      const sourceInput = document.getElementById('glossarySourceInput');
+      const targetInput = document.getElementById('glossaryTargetInput');
+      const contextInput = document.getElementById('glossaryContextInput');
+      const source = (sourceInput?.value || '').trim();
+      const target = (targetInput?.value || '').trim();
+      const context = (contextInput?.value || '').trim();
+      if (!source || !target) {
+        showToast(i18n('translateGlossarySourceRequired') || '原文和译文不能为空', 'error');
+        return;
+      }
+      try {
+        const r = await chrome.runtime.sendMessage({
+          action: 'translateAddGlossary',
+          term: { source, target, context }
+        });
+        if (r && r.success) {
+          if (sourceInput) sourceInput.value = '';
+          if (targetInput) targetInput.value = '';
+          if (contextInput) contextInput.value = '';
+          showToast(i18n('translateGlossaryAdded') || '词汇已添加', 'success');
+          _loadGlossaryList();
+        }
+      } catch (err) {
+        showToast(err.message || i18n('translateOperationFailed'), 'error');
+      }
+    });
+  }
+}
+
+// ===== 加载词汇本列表 =====
+async function _loadGlossaryList() {
+  const listEl = document.getElementById('glossaryList');
+  if (!listEl) return;
+  try {
+    const r = await chrome.runtime.sendMessage({ action: 'translateGetGlossary' });
+    if (!r || !r.success) return;
+    const terms = r.terms || [];
+    if (!terms.length) {
+      listEl.innerHTML = `<div class="glossary-empty">${_escHtml(i18n('translateGlossaryEmpty') || '暂无词汇')}</div>`;
+      return;
+    }
+    listEl.innerHTML = terms.map(t => `
+      <div class="glossary-item" data-id="${_escHtml(t.id)}">
+        <span class="glossary-item-source">${_escHtml(t.source)}</span>
+        <span class="glossary-item-arrow">→</span>
+        <span class="glossary-item-target">${_escHtml(t.target)}</span>
+        ${t.context ? `<span class="glossary-item-context">${_escHtml(t.context)}</span>` : ''}
+        <button class="glossary-item-delete" data-id="${_escHtml(t.id)}" title="${_escHtml(i18n('delete') || '删除')}">✕</button>
+      </div>
+    `).join('');
+    // 绑定删除
+    listEl.querySelectorAll('.glossary-item-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          const r = await chrome.runtime.sendMessage({ action: 'translateRemoveGlossary', id });
+          if (r && r.success) {
+            showToast(i18n('translateGlossaryRemoved') || '词汇已删除', 'success');
+            _loadGlossaryList();
+          }
+        } catch (err) {
+          showToast(err.message || i18n('deleteFailed'), 'error');
+        }
+      });
+    });
+  } catch (err) {
+    console.error('[Translate] load glossary error:', err);
+  }
+}
+
+// ===== 加载统计信息 =====
+async function _loadTranslateStats() {
+  const descEl = document.getElementById('translateStatsDesc');
+  if (!descEl) return;
+  try {
+    const r = await chrome.runtime.sendMessage({ action: 'translateGetStats' });
+    if (!r || !r.success) return;
+    const s = r.stats || {};
+    const lastUsed = s.lastUsed ? new Date(s.lastUsed).toLocaleString() : '-';
+    const avgLatency = s.avgLatencyMs ? s.avgLatencyMs + ' ms' : '-';
+    const successRate = s.totalRequests ? Math.round((s.successCount / s.totalRequests) * 100) + '%' : '-';
+    descEl.textContent =
+      `总请求: ${s.totalRequests || 0}\n` +
+      `成功: ${s.successCount || 0} | 失败: ${s.failCount || 0} | 成功率: ${successRate}\n` +
+      `缓存命中: ${s.cacheHits || 0} | 平均延迟: ${avgLatency}\n` +
+      `最近使用: ${lastUsed}`;
+  } catch (err) {
+    console.error('[Translate] load stats error:', err);
+  }
+}
+
+// ===== 简易 HTML 转义（避免 XSS）=====
+function _escHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

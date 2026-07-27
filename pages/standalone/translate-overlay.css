@@ -1,0 +1,569 @@
+/* pages/standalone/translate-overlay.css
+   MDI 窗口翻译工具栏 + 摘要浮层样式
+   毛玻璃浮卡规范（参考 voice-player.css）
+*/
+
+/* ===== 翻译工具栏 ===== */
+.translate-toolbar {
+  position: absolute;
+  top: 36px;
+  right: 8px;
+  z-index: 9999;
+  width: 260px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 6px 16px rgba(15, 23, 42, 0.08),
+    0 16px 40px rgba(15, 23, 42, 0.1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  color: #1e293b;
+  overflow: hidden;
+  animation: translate-toolbar-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes translate-toolbar-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.translate-toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  background: transparent;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+  cursor: move;
+  user-select: none;
+}
+
+.translate-toolbar-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #0f172a;
+  letter-spacing: 0.1px;
+}
+
+.translate-toolbar-close {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 150ms;
+  line-height: 1;
+}
+
+.translate-toolbar-close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.translate-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  flex-wrap: wrap;
+}
+
+.translate-toolbar-row label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.translate-toolbar select {
+  flex: 1 1 80px;
+  min-width: 0;
+  max-width: none;
+  padding: 6px 24px 6px 10px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 7px;
+  background-color: rgba(248, 250, 252, 0.6);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path fill='%2394a3b8' d='M2 4l3 3 3-3z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px;
+  font-size: 11px;
+  color: #1e293b;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  transition: border-color 150ms, box-shadow 150ms, background-color 150ms;
+  font-family: inherit;
+}
+
+.translate-toolbar select:hover {
+  border-color: #cbd5e1;
+  background-color: rgba(241, 245, 249, 0.8);
+}
+
+.translate-toolbar select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  background-color: #fff;
+}
+
+.translate-btn {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(248, 250, 252, 0.6);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 150ms;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.translate-btn:hover {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.06);
+}
+
+.translate-btn:active {
+  transform: translateY(0);
+}
+
+.translate-btn--primary {
+  background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(99, 102, 241, 0.2);
+}
+
+.translate-btn--primary:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* 禁用状态：注入失败时置灰 */
+.translate-btn.disabled,
+.translate-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none !important;
+  box-shadow: none !important;
+  filter: grayscale(0.3);
+}
+
+.translate-btn--primary.disabled,
+.translate-btn--primary:disabled {
+  background: linear-gradient(135deg, #94a3b8 0%, #cbd5e1 100%);
+  color: #f1f5f9;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.translate-toolbar-status {
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  color: #64748b;
+  min-height: 18px;
+  word-wrap: break-word;
+  line-height: 1.5;
+}
+
+.translate-toolbar-hint {
+  padding: 4px 14px 10px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.translate-toolbar-hint small {
+  display: block;
+  line-height: 1.5;
+}
+
+/* ===== 模式分段控件 ===== */
+.translate-mode-segments {
+  display: flex;
+  margin: 6px 14px;
+  padding: 3px;
+  background: rgba(241, 245, 249, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.4);
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.translate-mode-segment {
+  flex: 1;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: inherit;
+  outline: none;
+}
+
+.translate-mode-segment:hover {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.translate-mode-segment:focus-visible {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+
+.translate-mode-segment.active {
+  background: #fff;
+  color: #4f46e5;
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
+.translate-mode-segment.active:hover {
+  background: #fff;
+  color: #4338ca;
+}
+
+/* ===== 语言选择行（引擎 + 原文 → 目标）===== */
+.translate-lang-row {
+  align-items: center;
+}
+
+/* 引擎 select：宽度跟内容，不抢占原文/目标空间 */
+.translate-lang-row .translate-engine-select {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  white-space: nowrap;
+}
+
+/* 原文/目标 select：平分剩余空间 */
+.translate-lang-row .translate-source-lang-select,
+.translate-lang-row .translate-lang-select {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+
+.translate-lang-arrow {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  user-select: none;
+}
+
+.translate-btn--full {
+  flex: 1 1 100%;
+}
+
+/* ===== 暗色主题适配 ===== */
+@media (prefers-color-scheme: dark) {
+  .translate-toolbar {
+    background: rgba(30, 41, 59, 0.96);
+    border-color: rgba(71, 85, 105, 0.5);
+    color: #e2e8f0;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.2),
+      0 6px 16px rgba(0, 0, 0, 0.25),
+      0 16px 40px rgba(0, 0, 0, 0.35);
+  }
+  .translate-toolbar-header {
+    border-bottom-color: rgba(71, 85, 105, 0.5);
+  }
+  .translate-toolbar-title {
+    color: #f1f5f9;
+  }
+  .translate-toolbar-close {
+    color: #64748b;
+  }
+  .translate-toolbar-close:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+  }
+  .translate-toolbar select {
+    background-color: rgba(51, 65, 85, 0.5);
+    border-color: rgba(71, 85, 105, 0.6);
+    color: #e2e8f0;
+  }
+  .translate-toolbar select:hover {
+    border-color: #475569;
+    background-color: rgba(71, 85, 105, 0.5);
+  }
+  .translate-toolbar select:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+    background-color: rgba(30, 41, 59, 0.8);
+  }
+  .translate-btn {
+    background: rgba(51, 65, 85, 0.5);
+    border-color: rgba(71, 85, 105, 0.6);
+    color: #cbd5e1;
+  }
+  .translate-btn:hover {
+    background: rgba(71, 85, 105, 0.6);
+    border-color: #475569;
+    color: #f1f5f9;
+  }
+  .translate-toolbar-status {
+    color: #94a3b8;
+  }
+  .translate-toolbar-hint {
+    color: #64748b;
+  }
+  .translate-mode-segments {
+    background: rgba(15, 23, 42, 0.5);
+    border-color: rgba(71, 85, 105, 0.4);
+  }
+  .translate-mode-segment {
+    color: #94a3b8;
+  }
+  .translate-mode-segment:hover {
+    color: #cbd5e1;
+    background: rgba(51, 65, 85, 0.6);
+  }
+  .translate-mode-segment.active {
+    background: rgba(30, 41, 59, 0.9);
+    color: #a5b4fc;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  .translate-mode-segment.active:hover {
+    color: #c7d2fe;
+  }
+  .translate-lang-arrow {
+    color: #64748b;
+  }
+  /* 禁用状态：暗色主题 */
+  .translate-btn.disabled,
+  .translate-btn:disabled {
+    opacity: 0.35;
+    filter: grayscale(0.5);
+  }
+  .translate-btn--primary.disabled,
+  .translate-btn--primary:disabled {
+    background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+    color: #94a3b8;
+  }
+}
+
+/* ===== 摘要浮层 ===== */
+.translate-summary-panel {
+  position: absolute;
+  top: 36px;
+  left: 8px;
+  z-index: 9998;
+  width: 360px;
+  max-height: 70%;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 4px 8px rgba(0, 0, 0, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  color: #2d3748;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.translate-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(128, 90, 213, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  cursor: move;
+}
+
+.translate-summary-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #553c9a;
+}
+
+.translate-summary-close {
+  border: none;
+  background: transparent;
+  color: #718096;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.translate-summary-close:hover {
+  background: rgba(217, 48, 37, 0.1);
+  color: #d93025;
+}
+
+.translate-summary-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.translate-summary-section {
+  margin-bottom: 12px;
+}
+
+.translate-summary-section:last-child {
+  margin-bottom: 0;
+}
+
+.translate-summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #805ad5;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.translate-summary-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #2d3748;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.translate-summary-kp {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4a5568;
+}
+
+.translate-summary-kp li {
+  margin-bottom: 3px;
+}
+
+.translate-summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.translate-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(128, 90, 213, 0.1);
+  color: #553c9a;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ===== 暗色模式适配 ===== */
+@media (prefers-color-scheme: dark) {
+  .translate-toolbar,
+  .translate-summary-panel {
+    background: rgba(26, 32, 44, 0.92);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+  }
+
+  .translate-toolbar-header {
+    background: rgba(66, 153, 225, 0.15);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .translate-toolbar-title {
+    color: #90cdf4;
+  }
+
+  .translate-toolbar select,
+  .translate-btn {
+    background: #2d3748;
+    border-color: #4a5568;
+    color: #e2e8f0;
+  }
+
+  .translate-btn:hover {
+    background: #4a5568;
+  }
+
+  .translate-btn--primary {
+    background: #4299e1;
+    color: #fff;
+  }
+
+  .translate-mode-segments {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .translate-mode-segment {
+    color: #a0aec0;
+  }
+
+  .translate-mode-segment:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+  }
+
+  .translate-mode-segment.active {
+    background: rgba(255, 255, 255, 0.12);
+    color: #90cdf4;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  .translate-mode-segment.active:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #bee3f8;
+  }
+
+  .translate-lang-arrow {
+    color: #718096;
+  }
+
+  .translate-summary-header {
+    background: rgba(128, 90, 213, 0.15);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .translate-summary-title {
+    color: #d6bcfa;
+  }
+
+  .translate-summary-text {
+    color: #e2e8f0;
+  }
+
+  .translate-summary-kp {
+    color: #cbd5e0;
+  }
+
+  .translate-tag {
+    background: rgba(128, 90, 213, 0.2);
+    color: #d6bcfa;
+  }
+}

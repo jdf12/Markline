@@ -858,6 +858,10 @@
     "message": "Read Aloud",
     "description": "MDI window voice button tooltip"
   },
+  "mdiTranslate": {
+    "message": "Translate Page",
+    "description": "MDI window translate button tooltip"
+  },
   "voiceSection": {
     "message": "Voice Reading",
     "description": "Voice panel nav item"
@@ -1085,5 +1089,161 @@
   "voiceFetchFailed": {
     "message": "Failed to fetch page",
     "description": "Fetch failed toast"
+  },
+  "translateSection": {
+    "message": "Translate",
+    "description": "Translate panel nav item"
+  },
+  "translateBasicCard": {
+    "message": "Basic Settings",
+    "description": "Translate basic card title"
+  },
+  "translateEnable": {
+    "message": "Enable Translation",
+    "description": "Translate enable toggle label"
+  },
+  "translateEnableDesc": {
+    "message": "When off, the MDI window translate button is disabled",
+    "description": "Translate enable toggle description"
+  },
+  "translateEngine": {
+    "message": "Default Engine",
+    "description": "Translate engine select label"
+  },
+  "translateEngineDesc": {
+    "message": "AI reuses the AI Assistant config; Google is free and direct",
+    "description": "Translate engine select description"
+  },
+  "translateTargetLang": {
+    "message": "Target Language",
+    "description": "Translate target language label"
+  },
+  "translateTargetLangDesc": {
+    "message": "Language of the translated text",
+    "description": "Translate target language description"
+  },
+  "translateDefaultMode": {
+    "message": "Default Translation Mode",
+    "description": "Translate default mode label"
+  },
+  "translateDefaultModeDesc": {
+    "message": "Initial display mode when translation opens",
+    "description": "Translate default mode description"
+  },
+  "translateHoverKey": {
+    "message": "Hover Translate Hotkey",
+    "description": "Translate hover hotkey label"
+  },
+  "translateHoverKeyDesc": {
+    "message": "Hold this key and hover a paragraph to translate",
+    "description": "Translate hover hotkey description"
+  },
+  "translateStatsCard": {
+    "message": "Cache & Statistics",
+    "description": "Translate stats card title"
+  },
+  "translateCache": {
+    "message": "Enable Translation Cache",
+    "description": "Translate cache toggle label"
+  },
+  "translateCacheDesc": {
+    "message": "Skip API calls for repeated text (recommended)",
+    "description": "Translate cache toggle description"
+  },
+  "translateGlossary": {
+    "message": "Enable Glossary",
+    "description": "Translate glossary toggle label"
+  },
+  "translateGlossaryDesc": {
+    "message": "Apply glossary terms during translation",
+    "description": "Translate glossary toggle description"
+  },
+  "translateStatsInfo": {
+    "message": "Usage Statistics",
+    "description": "Translate stats info label"
+  },
+  "translateClearCache": {
+    "message": "Clear Translation Cache",
+    "description": "Translate clear cache label"
+  },
+  "translateClearCacheDesc": {
+    "message": "Remove all cached text translations",
+    "description": "Translate clear cache description"
+  },
+  "translateClearHistory": {
+    "message": "Clear Translation History",
+    "description": "Translate clear history label"
+  },
+  "translateClearHistoryDesc": {
+    "message": "Remove all translation history records",
+    "description": "Translate clear history description"
+  },
+  "translateGlossaryCard": {
+    "message": "Glossary",
+    "description": "Translate glossary card title"
+  },
+  "translateAICard": {
+    "message": "Summary & Mind Map",
+    "description": "Translate AI card title"
+  },
+  "translateSummaryLen": {
+    "message": "Summary Length",
+    "description": "Translate summary length label"
+  },
+  "translateSummaryLenDesc": {
+    "message": "Target length of AI-generated summary",
+    "description": "Translate summary length description"
+  },
+  "translateMaxKeyPoints": {
+    "message": "Max Key Points",
+    "description": "Translate max key points label"
+  },
+  "translateMaxKeyPointsDesc": {
+    "message": "Upper limit of key points extracted by AI",
+    "description": "Translate max key points description"
+  },
+  "translateMindmapDepth": {
+    "message": "Mind Map Max Depth",
+    "description": "Translate mindmap depth label"
+  },
+  "translateMindmapDepthDesc": {
+    "message": "Number of mind map levels",
+    "description": "Translate mindmap depth description"
+  },
+  "translateMindmapLayout": {
+    "message": "Mind Map Layout",
+    "description": "Translate mindmap layout label"
+  },
+  "translateMindmapLayoutDesc": {
+    "message": "Mind map rendering style",
+    "description": "Translate mindmap layout description"
+  },
+  "translateCacheCleared": {
+    "message": "Translation cache cleared",
+    "description": "Toast: cache cleared"
+  },
+  "translateHistoryCleared": {
+    "message": "Translation history cleared",
+    "description": "Toast: history cleared"
+  },
+  "translateGlossaryAdded": {
+    "message": "Glossary term added",
+    "description": "Toast: glossary added"
+  },
+  "translateGlossaryRemoved": {
+    "message": "Glossary term removed",
+    "description": "Toast: glossary removed"
+  },
+  "translateGlossaryEmpty": {
+    "message": "No glossary terms yet",
+    "description": "Glossary empty state"
+  },
+  "translateGlossarySourceRequired": {
+    "message": "Source and target are required",
+    "description": "Toast: glossary input invalid"
+  },
+  "translateSettingsSaved": {
+    "message": "Translation settings saved",
+    "description": "Toast: settings saved"
   }
 }

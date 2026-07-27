@@ -862,6 +862,10 @@
     "message": "朗读",
     "description": "MDI 窗口朗读按钮提示"
   },
+  "mdiTranslate": {
+    "message": "网页翻译",
+    "description": "MDI 窗口翻译按钮提示"
+  },
   "voiceSection": {
     "message": "语音朗读",
     "description": "设置页语音面板导航"
@@ -1089,5 +1093,161 @@
   "voiceFetchFailed": {
     "message": "抓取页面失败",
     "description": "抓取失败提示"
+  },
+  "translateSection": {
+    "message": "网页翻译",
+    "description": "翻译面板导航项"
+  },
+  "translateBasicCard": {
+    "message": "基础设置",
+    "description": "翻译基础卡片标题"
+  },
+  "translateEnable": {
+    "message": "启用翻译",
+    "description": "翻译启用开关标签"
+  },
+  "translateEnableDesc": {
+    "message": "关闭后 MDI 窗口翻译按钮失效",
+    "description": "翻译启用开关描述"
+  },
+  "translateEngine": {
+    "message": "默认引擎",
+    "description": "翻译引擎选择标签"
+  },
+  "translateEngineDesc": {
+    "message": "AI 翻译复用 AI 助手配置；Google 翻译免费直连",
+    "description": "翻译引擎选择描述"
+  },
+  "translateTargetLang": {
+    "message": "目标语言",
+    "description": "翻译目标语言标签"
+  },
+  "translateTargetLangDesc": {
+    "message": "译文显示语言",
+    "description": "翻译目标语言描述"
+  },
+  "translateDefaultMode": {
+    "message": "默认翻译模式",
+    "description": "翻译默认模式标签"
+  },
+  "translateDefaultModeDesc": {
+    "message": "打开翻译时初始显示模式",
+    "description": "翻译默认模式描述"
+  },
+  "translateHoverKey": {
+    "message": "悬停翻译快捷键",
+    "description": "翻译悬停快捷键标签"
+  },
+  "translateHoverKeyDesc": {
+    "message": "按住此键 + 鼠标悬停段落触发翻译",
+    "description": "翻译悬停快捷键描述"
+  },
+  "translateStatsCard": {
+    "message": "缓存与统计",
+    "description": "翻译统计卡片标题"
+  },
+  "translateCache": {
+    "message": "启用翻译缓存",
+    "description": "翻译缓存开关标签"
+  },
+  "translateCacheDesc": {
+    "message": "相同文本不重复调用 API（推荐开启）",
+    "description": "翻译缓存开关描述"
+  },
+  "translateGlossary": {
+    "message": "启用词汇本",
+    "description": "翻译词汇本开关标签"
+  },
+  "translateGlossaryDesc": {
+    "message": "翻译时自动应用词汇本中的术语",
+    "description": "翻译词汇本开关描述"
+  },
+  "translateStatsInfo": {
+    "message": "使用统计",
+    "description": "翻译统计信息标签"
+  },
+  "translateClearCache": {
+    "message": "清空翻译缓存",
+    "description": "清空翻译缓存标签"
+  },
+  "translateClearCacheDesc": {
+    "message": "清除所有文本翻译缓存",
+    "description": "清空翻译缓存描述"
+  },
+  "translateClearHistory": {
+    "message": "清空翻译历史",
+    "description": "清空翻译历史标签"
+  },
+  "translateClearHistoryDesc": {
+    "message": "清除翻译历史记录",
+    "description": "清空翻译历史描述"
+  },
+  "translateGlossaryCard": {
+    "message": "词汇本",
+    "description": "翻译词汇本卡片标题"
+  },
+  "translateAICard": {
+    "message": "智能摘要 & 脑图",
+    "description": "翻译 AI 卡片标题"
+  },
+  "translateSummaryLen": {
+    "message": "摘要长度",
+    "description": "摘要长度标签"
+  },
+  "translateSummaryLenDesc": {
+    "message": "AI 生成摘要的目标长度",
+    "description": "摘要长度描述"
+  },
+  "translateMaxKeyPoints": {
+    "message": "关键观点最大数",
+    "description": "关键观点最大数标签"
+  },
+  "translateMaxKeyPointsDesc": {
+    "message": "AI 提取的关键观点上限",
+    "description": "关键观点最大数描述"
+  },
+  "translateMindmapDepth": {
+    "message": "脑图最大深度",
+    "description": "脑图深度标签"
+  },
+  "translateMindmapDepthDesc": {
+    "message": "脑图层级深度",
+    "description": "脑图深度描述"
+  },
+  "translateMindmapLayout": {
+    "message": "脑图布局",
+    "description": "脑图布局标签"
+  },
+  "translateMindmapLayoutDesc": {
+    "message": "脑图渲染样式",
+    "description": "脑图布局描述"
+  },
+  "translateCacheCleared": {
+    "message": "翻译缓存已清空",
+    "description": "缓存已清空提示"
+  },
+  "translateHistoryCleared": {
+    "message": "翻译历史已清空",
+    "description": "历史已清空提示"
+  },
+  "translateGlossaryAdded": {
+    "message": "词汇已添加",
+    "description": "词汇已添加提示"
+  },
+  "translateGlossaryRemoved": {
+    "message": "词汇已删除",
+    "description": "词汇已删除提示"
+  },
+  "translateGlossaryEmpty": {
+    "message": "暂无词汇",
+    "description": "词汇本空状态"
+  },
+  "translateGlossarySourceRequired": {
+    "message": "原文和译文不能为空",
+    "description": "词汇输入无效提示"
+  },
+  "translateSettingsSaved": {
+    "message": "翻译设置已保存",
+    "description": "设置已保存提示"
   }
 }

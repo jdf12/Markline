@@ -19,6 +19,10 @@ importScripts('push-channel.js');
 // 引入语音朗读模块（edge-tts 本地桥接；非敏感配置明文存储）
 importScripts('../shared/voice-store.js');
 importScripts('voice-bridge-client.js');
+// 引入网页翻译模块（AI 翻译 + Google 翻译；MDI 窗口内段落双语对照、悬停翻译、划词翻译、智能摘要、脑图）
+importScripts('../shared/translate-store.js');
+importScripts('../shared/translate-engine.js');
+importScripts('translate-channel.js');
 
 // ===== 正文内容提取 =====
 async function extractActiveTabContent(tabId, url) {
@@ -664,6 +668,21 @@ async function saveRssArticleAsBookmark(item, feed, settings) {
 // 暴露到全局，供 feed-fetcher.js 自动书签功能调用
 self.saveRssArticleAsBookmark = saveRssArticleAsBookmark;
 
+// ===== 长连接监听（流式翻译 port）=====
+// overlay 端通过 chrome.runtime.connect({name: 'translate-stream'}) 建立连接
+// background 端流式推送 partial 译文，最后推送 complete 信号
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'translate-stream') return;
+  port.onMessage.addListener(async (msg) => {
+    if (msg.action !== 'translateParagraphs') return;
+    try {
+      await self.translateChannel.handleStream(msg, port);
+    } catch (err) {
+      port.postMessage({ type: 'complete', success: false, error: err.message || String(err) });
+    }
+  });
+});
+
 // ===== 消息监听 =====
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.action) {
@@ -1121,6 +1140,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: true });
         } catch (err) {
           sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+    }
+
+    // ===== 网页翻译（MDI 窗口）=====
+    case 'translateGetConfig':
+    case 'translateSetConfig':
+    case 'translateParagraphs':
+    case 'translateSingle':
+    case 'translateSelection':
+    case 'translateGenerateSummary':
+    case 'translateGenerateMindmap':
+    case 'translateGenerateQA':
+    case 'translateClearCache':
+    case 'translateGetHistory':
+    case 'translateClearHistory':
+    case 'translateGetGlossary':
+    case 'translateAddGlossary':
+    case 'translateRemoveGlossary':
+    case 'translateGetStats': {
+      (async () => {
+        try {
+          const result = await translateChannel.handle(message.action, message);
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ success: false, error: err.message || String(err) });
         }
       })();
       return true;

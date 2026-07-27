@@ -173,7 +173,8 @@ function resolveProvider(config) {
 }
 
 // ===== 并发控制（避免触发免费/低价 API 的速率限制）=====
-const AI_MAX_CONCURRENCY = 2;
+// 注：翻译场景请求密集，并发 1 + 间隔限流更稳定（避免 429）
+const AI_MAX_CONCURRENCY = 1;
 let _aiRunning = 0;
 const _aiQueue = [];
 

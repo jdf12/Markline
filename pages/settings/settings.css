@@ -1888,6 +1888,119 @@ body.theme-dark .ai-hint-card {
   }
 }
 
+/* ===== 网页翻译面板 (panel-translate) ===== */
+/* 复用语音/推送面板的卡片布局风格 */
+
+#panel-translate .setting-card {
+  margin-bottom: var(--space-lg);
+}
+
+#panel-translate .setting-card:last-child {
+  margin-bottom: 0;
+}
+
+/* 提示卡片内边距（与 voice-hint-card 一致） */
+#panel-translate .ai-hint-card {
+  margin: var(--space-sm) var(--space-xl);
+}
+
+/* 词汇本列表容器 */
+.glossary-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs);
+  background: var(--bg-secondary);
+  margin-top: var(--space-sm);
+}
+
+/* 词汇本单条项 */
+.glossary-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  transition: background var(--transition-fast);
+}
+
+.glossary-item:hover {
+  background: var(--bg-hover);
+}
+
+.glossary-item-source {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.glossary-item-arrow {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.glossary-item-target {
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+}
+
+.glossary-item-context {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.glossary-item-delete {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.glossary-item-delete:hover {
+  background: rgba(217, 48, 37, 0.1);
+  color: var(--danger);
+}
+
+.glossary-empty {
+  padding: var(--space-md);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* 窄屏适配（与语音面板一致） */
+@media (max-width: 640px) {
+  #panel-translate .setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  #panel-translate .setting-control {
+    width: 100%;
+  }
+
+  #panel-translate .push-input,
+  #panel-translate .push-input--wide,
+  #panel-translate .push-input--narrow {
+    width: 100%;
+  }
+
+  #panel-translate .select-control {
+    width: 100%;
+    min-width: 0 !important;
+  }
+}
+
 /* ===== AI Logs ===== */
 .ai-logs-list {
   padding: 0 var(--space-xl);
