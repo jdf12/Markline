@@ -70,5 +70,14 @@
         "path": "rules/frame_allow.json"
       }
     ]
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/translate-injector.js",
+        "content/translate-injector.css"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

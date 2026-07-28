@@ -64,8 +64,9 @@
   const _frameIdCache = new Map();
   const _FRAME_ID_CACHE_TTL = 60000; // 60 秒内复用 frameId
 
-  // ===== 通过 webNavigation 查找 iframe 的 frameId（带缓存）=====
-  async function _findFrameId(iframeUrl) {
+  // ===== 通过 webNavigation 查找 iframe 的 frameId（带缓存 + 多层兜底）=====
+  // 匹配优先级：精确 URL → origin+path → path 结尾 → 最后一个非主框架的 frame
+  async function _findFrameId(iframeUrl, iframeEl) {
     // 1. 查缓存（未过期则直接返回）
     const cached = _frameIdCache.get(iframeUrl);
     if (cached && (Date.now() - cached.ts) < _FRAME_ID_CACHE_TTL) {
@@ -76,30 +77,54 @@
     if (tabId === null) return null;
     try {
       const frames = await chrome.webNavigation.getAllFrames({ tabId });
-      if (!frames) return null;
-      // 预计算目标 URL 的 origin+path（避免循环内重复 new URL）
-      let targetKey = null;
+      if (!frames || frames.length === 0) return null;
+
+      // 预解析目标 URL
+      let targetUrl = null;
+      let targetKey = null; // origin + pathname
+      let targetPath = null; // pathname 仅
       try {
-        const u = new URL(iframeUrl);
-        targetKey = u.origin + u.pathname;
+        targetUrl = new URL(iframeUrl);
+        targetKey = targetUrl.origin + targetUrl.pathname;
+        targetPath = targetUrl.pathname;
       } catch {}
 
-      // 2. 精确匹配优先，origin+path 兜底
-      let match = frames.find(f => f.url === iframeUrl && f.frameId > 0);
+      // 仅考虑非主框架（frameId > 0）
+      const subFrames = frames.filter(f => f.frameId > 0 && f.url);
+      if (subFrames.length === 0) return null;
+
+      // 2. 精确匹配 URL
+      let match = subFrames.find(f => f.url === iframeUrl);
+      // 3. origin + pathname 匹配（忽略查询参数差异）
       if (!match && targetKey) {
-        match = frames.find(f => {
-          if (f.frameId <= 0 || !f.url) return false;
+        match = subFrames.find(f => {
           if (f.url === iframeUrl) return true;
           try {
             const fu = new URL(f.url);
             return (fu.origin + fu.pathname) === targetKey;
-          } catch {
-            return false;
-          }
+          } catch { return false; }
         });
       }
+      // 4. pathname 结尾匹配（应对重定向导致 origin 变化）
+      if (!match && targetPath && targetPath.length > 1) {
+        match = subFrames.find(f => {
+          try {
+            const fu = new URL(f.url);
+            return fu.pathname === targetPath;
+          } catch { return false; }
+        });
+      }
+      // 5. 兜底：about:blank / srcdoc / blob URL 等
+      // 这种情况下无法通过 URL 匹配，使用 iframeEl 的 frameId 属性（如果可访问）
+      if (!match && iframeEl) {
+        // 同源 iframe 可以直接读取 contentWindow.name 或通过其他方式
+        // 但跨域无法读取，这里用最后一个子框架兜底（适用于单 iframe 场景）
+        if (subFrames.length === 1) {
+          match = subFrames[0];
+        }
+      }
+
       if (match) {
-        // 写缓存
         _frameIdCache.set(iframeUrl, { frameId: match.frameId, ts: Date.now() });
         return match.frameId;
       }
@@ -119,55 +144,167 @@
     }
   }
 
-  // ===== 注入翻译脚本到 iframe（JS + CSS 并行注入）=====
-  async function _injectInjector(iframeUrl) {
-    const tabId = await _getTabId();
-    const frameId = await _findFrameId(iframeUrl);
-    if (tabId === null || frameId === null) {
-      console.warn('[TranslateOverlay] cannot resolve tab/frame for', iframeUrl);
-      return false;
-    }
+  // ===== 等待 iframe 的 document readyState 变为 complete =====
+  // 注入前确保 DOM 完全就绪，避免在 loading 状态下注入导致失败
+  async function _waitForIframeReady(iframeEl, timeoutMs = 8000) {
+    if (!iframeEl || !iframeEl.contentWindow) return false;
     try {
-      // 并行注入 JS 和 CSS，节省一次往返时间
-      const target = { tabId, frameIds: [frameId] };
-      const [jsResult, cssResult] = await Promise.allSettled([
-        chrome.scripting.executeScript({
-          target,
-          files: ['content/translate-injector.js']
-        }),
-        chrome.scripting.insertCSS({
-          target,
-          files: ['content/translate-injector.css']
-        })
-      ]);
-      // JS 注入失败才算整体失败（CSS 失败不影响功能，仅样式缺失）
-      if (jsResult.status === 'rejected') {
-        console.warn('[TranslateOverlay] JS inject failed:', jsResult.reason);
-        return false;
-      }
-      // JS 注入成功但 frameId 可能已失效（iframe reload），清除缓存重试一次
-      const jsArr = jsResult.value;
-      if (!jsArr || jsArr.length === 0) {
-        _invalidateFrameIdCache(iframeUrl);
-        // 重新查找 frameId 并重试一次
-        const newFrameId = await _findFrameId(iframeUrl);
-        if (newFrameId === null || newFrameId === frameId) return false;
+      const doc = iframeEl.contentDocument;
+      if (doc && doc.readyState === 'complete') return true;
+    } catch {
+      // 跨域无法读取 contentDocument，直接认为已就绪（load 事件已触发）
+      return true;
+    }
+    // 同源但还在 loading，等 readyStateChange
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        if (iframeEl.contentWindow) clearInterval(poller);
+        resolve(false);
+      }, timeoutMs);
+      const poller = setInterval(() => {
         try {
-          await chrome.scripting.executeScript({
-            target: { tabId, frameIds: [newFrameId] },
+          const doc = iframeEl.contentDocument;
+          if (doc && doc.readyState === 'complete') {
+            clearTimeout(timer);
+            clearInterval(poller);
+            resolve(true);
+          }
+        } catch {
+          // 跨域访问失败，认为已就绪
+          clearTimeout(timer);
+          clearInterval(poller);
+          resolve(true);
+        }
+      }, 100);
+    });
+  }
+
+  // ===== 注入翻译脚本到 iframe（多层兜底 + 重试机制）=====
+  // 策略：
+  //   1. 等待 iframe document readyState = complete
+  //   2. 查找 frameId（精确→origin+path→path→单 frame 兜底）
+  //   3. 注入 JS + CSS（并行）
+  //   4. 失败时重试（500ms × 3 次），每次重新查找 frameId
+  //   5. 仍失败时尝试 func 注入（绕过文件 CSP）
+  async function _injectInjector(iframeUrl, iframeEl) {
+    const tabId = await _getTabId();
+    if (tabId === null) {
+      console.warn('[TranslateOverlay] cannot resolve tab id');
+      return { ok: false, error: 'NO_TAB_ID' };
+    }
+
+    // 1. 等待 iframe document 就绪
+    if (iframeEl) await _waitForIframeReady(iframeEl);
+
+    // 2. 重试循环（最多 3 次，间隔 500ms）
+    const MAX_RETRIES = 3;
+    const RETRY_INTERVAL = 500;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // 重试前等待 + 清除缓存（frameId 可能已变化）
+        _invalidateFrameIdCache(iframeUrl);
+        await new Promise(r => setTimeout(r, RETRY_INTERVAL));
+        // 重试前再次等待 iframe 就绪
+        if (iframeEl) await _waitForIframeReady(iframeEl, 2000);
+      }
+
+      const frameId = await _findFrameId(iframeUrl, iframeEl);
+      if (frameId === null) {
+        lastError = 'FRAME_NOT_FOUND';
+        console.warn(`[TranslateOverlay] attempt ${attempt + 1}: frame not found for`, iframeUrl);
+        continue;
+      }
+
+      try {
+        const target = { tabId, frameIds: [frameId] };
+        // 并行注入 JS + CSS
+        const [jsResult, cssResult] = await Promise.allSettled([
+          chrome.scripting.executeScript({
+            target,
             files: ['content/translate-injector.js']
-          });
-          return true;
-        } catch (err) {
-          console.warn('[TranslateOverlay] retry inject failed:', err);
-          return false;
+          }),
+          chrome.scripting.insertCSS({
+            target,
+            files: ['content/translate-injector.css']
+          })
+        ]);
+
+        if (jsResult.status === 'fulfilled') {
+          const jsArr = jsResult.value;
+          // 空结果表示 frameId 已失效，重试
+          if (!jsArr || jsArr.length === 0) {
+            lastError = 'EMPTY_RESULT';
+            console.warn(`[TranslateOverlay] attempt ${attempt + 1}: empty result, frameId stale`);
+            continue;
+          }
+          // 注入成功
+          console.log(`[TranslateOverlay] inject succeeded on attempt ${attempt + 1}`);
+          return { ok: true, error: null };
+        }
+
+        // JS 注入被拒绝
+        const reason = jsResult.reason;
+        const errMsg = String(reason?.message || reason || '');
+        lastError = errMsg;
+        console.warn(`[TranslateOverlay] attempt ${attempt + 1}: JS inject rejected:`, errMsg);
+
+        // CSP 阻止或页面不允许注入，不重试
+        if (/Cannot access|cannot be scripted|not allowed|denied/i.test(errMsg)) {
+          return { ok: false, error: 'PAGE_NOT_SCRIPTABLE' };
+        }
+        // 跨域错误，不重试
+        if (/cross-origin|CORS|SameSite/i.test(errMsg)) {
+          return { ok: false, error: 'CROSS_ORIGIN_BLOCKED' };
+        }
+        // 其他错误继续重试
+      } catch (err) {
+        lastError = String(err?.message || err);
+        console.warn(`[TranslateOverlay] attempt ${attempt + 1}: inject threw:`, lastError);
+      }
+    }
+
+    // 3. 所有重试都失败，尝试 func 注入兜底
+    // （某些页面的 CSP 阻止 file 注入，但允许 func 注入）
+    console.warn('[TranslateOverlay] all retries failed, trying func injection fallback');
+    try {
+      const frameId = await _findFrameId(iframeUrl, iframeEl);
+      if (frameId !== null) {
+        // 通过 fetch 动态获取脚本内容再 eval（绕过 file 直接注入的限制）
+        const result = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          func: async () => {
+            try {
+              // 检查是否已注入（避免重复）
+              if (window.__marklineInjectorLoaded) return { skipped: true };
+              // 动态加载脚本
+              const script = document.createElement('script');
+              script.src = chrome.runtime.getURL('content/translate-injector.js');
+              script.async = false;
+              const link = document.createElement('link');
+              link.rel = 'stylesheet';
+              link.href = chrome.runtime.getURL('content/translate-injector.css');
+              document.head.appendChild(link);
+              document.head.appendChild(script);
+              return { skipped: false };
+            } catch (e) {
+              return { error: String(e?.message || e) };
+            }
+          },
+          world: 'MAIN',
+          injectImmediately: true
+        });
+        if (result && result.length > 0 && !result[0].result?.error) {
+          console.log('[TranslateOverlay] func injection fallback succeeded');
+          return { ok: true, error: null };
         }
       }
-      return true;
     } catch (err) {
-      console.warn('[TranslateOverlay] inject failed:', err);
-      return false;
+      console.warn('[TranslateOverlay] func injection fallback failed:', err);
     }
+
+    return { ok: false, error: lastError || 'INJECT_FAILED' };
   }
 
   // ===== 向 iframe 发送请求-响应消息 =====
@@ -914,14 +1051,25 @@
     // 注入翻译脚本到 iframe
     const statusEl0 = ov.toolbarEl.querySelector('.translate-toolbar-status');
     if (statusEl0) statusEl0.textContent = i18n('translateStatusInjecting');
-    // 并行预热 frameId 缓存 + 执行注入
-    const injected = await _injectInjector(url);
+    // 多层兜底注入：等待 readyState → 查找 frameId → 并行注入 → 失败重试 → func 兜底
+    const injectResult = await _injectInjector(url, iframeEl);
+    const injected = injectResult.ok;
     ov.injected = injected;
     const statusEl = ov.toolbarEl.querySelector('.translate-toolbar-status');
     if (statusEl) {
-      statusEl.textContent = injected
-        ? i18n('translateStatusReady')
-        : i18n('translateStatusInjectFailed');
+      if (injected) {
+        statusEl.textContent = i18n('translateStatusReady');
+      } else {
+        // 根据错误类型显示具体原因
+        const errMap = {
+          'NO_TAB_ID': i18n('translateInjectErrNoTab'),
+          'FRAME_NOT_FOUND': i18n('translateInjectErrNoFrame'),
+          'PAGE_NOT_SCRIPTABLE': i18n('translateInjectErrNotScriptable'),
+          'CROSS_ORIGIN_BLOCKED': i18n('translateInjectErrCrossOrigin'),
+          'INJECT_FAILED': i18n('translateStatusInjectFailed')
+        };
+        statusEl.textContent = errMap[injectResult.error] || i18n('translateStatusInjectFailed');
+      }
     }
     // 注入完成（或失败）后更新按钮启用状态
     _updateToolbarButtonState(ov);

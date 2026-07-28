@@ -1,0 +1,535 @@
+/* content/translate-injector.css
+   注入到 MDI iframe 的翻译样式
+   参考 immersive-translate 主题系统：CSS 变量 + 属性选择器
+   12 种主题预设，默认 none（最沉浸）
+*/
+
+/* ===== 主题 CSS 变量（默认 none 主题）===== */
+:root {
+  --markline-t-color: #4a5568;
+  --markline-t-bg: transparent;
+  --markline-t-border: none;
+  --markline-t-border-left: none;
+  --markline-t-border-bottom: none;
+  --markline-t-border-radius: 0;
+  --markline-t-padding: 0;
+  --markline-t-margin: 8px 0 0 0;
+  --markline-t-font-size: 1em;
+  --markline-t-line-height: 1.7;
+  --markline-t-opacity: 1;
+  --markline-t-text-decoration: none;
+  --markline-t-text-decoration-color: currentColor;
+  --markline-t-bg-gradient: none;
+}
+
+/* ===== 12 种主题预设（通过 data-markline-theme 属性切换）===== */
+
+/* none: 仅改色，无装饰（默认，最沉浸）*/
+[data-markline-theme="none"] {
+  --markline-t-color: #4a5568;
+  --markline-t-bg: transparent;
+}
+
+/* underline: 译文底部细线 */
+[data-markline-theme="underline"] {
+  --markline-t-color: #2d3748;
+  --markline-t-border-bottom: 1px solid #72ece9;
+  --markline-t-padding: 2px 0;
+  --markline-t-text-decoration-color: #72ece9;
+}
+
+/* nativeUnderline: 原生下划线 */
+[data-markline-theme="nativeUnderline"] {
+  --markline-t-color: #2d3748;
+  --markline-t-text-decoration: underline;
+  --markline-t-text-decoration-color: #72ece9;
+}
+
+/* dashed: 虚线下划线 */
+[data-markline-theme="dashed"] {
+  --markline-t-color: #2d3748;
+  --markline-t-text-decoration: underline dashed;
+  --markline-t-text-decoration-color: #59c1bd;
+}
+
+/* dotted: 点状下划线 */
+[data-markline-theme="dotted"] {
+  --markline-t-color: #2d3748;
+  --markline-t-text-decoration: underline dotted;
+  --markline-t-text-decoration-color: #94a3b8;
+}
+
+/* wavy: 波浪下划线 */
+[data-markline-theme="wavy"] {
+  --markline-t-color: #2d3748;
+  --markline-t-text-decoration: underline wavy;
+  --markline-t-text-decoration-color: #72ece9;
+}
+
+/* grey: 深灰色文字（低对比度）*/
+[data-markline-theme="grey"] {
+  --markline-t-color: #6b7280;
+  --markline-t-bg: transparent;
+  --markline-t-opacity: 0.85;
+}
+
+/* highlight: 黄色高亮背景 */
+[data-markline-theme="highlight"] {
+  --markline-t-color: #2d3748;
+  --markline-t-bg: #ffff00;
+  --markline-t-padding: 1px 4px;
+  --markline-t-border-radius: 2px;
+}
+
+/* marker: 黄色荧光笔（半透明背景）*/
+[data-markline-theme="marker"] {
+  --markline-t-color: #2d3748;
+  --markline-t-bg-gradient: linear-gradient(transparent 55%, rgba(251, 218, 65, 0.6) 55%);
+  --markline-t-padding: 0 2px;
+}
+
+/* background: 浅色背景（卡片式）*/
+[data-markline-theme="background"] {
+  --markline-t-color: #4a5568;
+  --markline-t-bg: rgba(219, 175, 175, 0.12);
+  --markline-t-padding: 4px 8px;
+  --markline-t-border-radius: 4px;
+}
+
+/* borderLeft: 左侧彩色边框（引用风格）*/
+[data-markline-theme="borderLeft"] {
+  --markline-t-color: #4a5568;
+  --markline-t-bg: rgba(66, 153, 225, 0.04);
+  --markline-t-border-left: 3px solid #4299e1;
+  --markline-t-padding: 2px 0 2px 8px;
+}
+
+/* blockquote: 左红色粗边框（引用块）*/
+[data-markline-theme="blockquote"] {
+  --markline-t-color: #4a5568;
+  --markline-t-border-left: 4px solid #cc3355;
+  --markline-t-padding: 2px 0 2px 12px;
+  --markline-t-margin: 8px 0 8px 0;
+}
+
+/* dividingLine: 顶部分隔线 */
+[data-markline-theme="dividingLine"] {
+  --markline-t-color: #4a5568;
+  --markline-t-border-top: 1px solid #94a3b8;
+  --markline-t-padding: 4px 0 0 0;
+  --markline-t-margin: 8px 0 0 0;
+}
+
+/* ===== 暗色模式适配 ===== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --markline-t-color: #cbd5e0;
+  }
+  [data-markline-theme="none"] {
+    --markline-t-color: #cbd5e0;
+  }
+  [data-markline-theme="grey"] {
+    --markline-t-color: #a0aec0;
+  }
+  [data-markline-theme="background"] {
+    --markline-t-color: #cbd5e0;
+    --markline-t-bg: rgba(66, 153, 225, 0.1);
+  }
+  [data-markline-theme="borderLeft"] {
+    --markline-t-color: #cbd5e0;
+    --markline-t-bg: rgba(66, 153, 225, 0.08);
+  }
+  [data-markline-theme="blockquote"] {
+    --markline-t-color: #cbd5e0;
+  }
+  [data-markline-theme="highlight"] {
+    --markline-t-color: #1a202c;
+  }
+  [data-markline-theme="marker"] {
+    --markline-t-color: #cbd5e0;
+  }
+}
+
+/* ===== 块级译文（默认）===== */
+.markline-translation {
+  display: block;
+  color: var(--markline-t-color);
+  background: var(--markline-t-bg);
+  background-image: var(--markline-t-bg-gradient);
+  border: var(--markline-t-border);
+  border-left: var(--markline-t-border-left);
+  border-bottom: var(--markline-t-border-bottom);
+  border-top: var(--markline-t-border-top, none);
+  border-radius: var(--markline-t-border-radius);
+  padding: var(--markline-t-padding);
+  margin: var(--markline-t-margin);
+  font-size: var(--markline-t-font-size);
+  line-height: var(--markline-t-line-height);
+  opacity: var(--markline-t-opacity);
+  text-decoration: var(--markline-t-text-decoration);
+  text-decoration-color: var(--markline-t-text-decoration-color);
+  word-wrap: break-word;
+  transition: opacity 0.2s ease;
+}
+
+/* ===== 行内译文（SPAN/A/B/STRONG/EM/I/BUTTON/LABEL 等）===== */
+.markline-translation--inline {
+  display: inline;
+  color: var(--markline-t-color);
+  background: var(--markline-t-bg);
+  background-image: var(--markline-t-bg-gradient);
+  font-size: var(--markline-t-font-size);
+  line-height: inherit;
+  opacity: var(--markline-t-opacity);
+  text-decoration: var(--markline-t-text-decoration);
+  text-decoration-color: var(--markline-t-text-decoration-color);
+  /* 行内只用文字装饰和背景，不用 padding/border-left（避免破坏行高）*/
+  padding: 0 2px;
+  margin: 0 2px;
+  border-radius: var(--markline-t-border-radius);
+}
+
+/* 译文前自动空格（行内时与原文分隔）*/
+.markline-translation--inline::before {
+  content: ' ';
+}
+
+/* ===== 译文位置：above（译文在原文上方）===== */
+[data-markline-position="above"] .markline-translation {
+  margin: 0 0 8px 0;
+}
+
+/* ===== 分隔符（可选，默认不显示）===== */
+.markline-translation-divider {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.75em;
+  opacity: 0.4;
+  font-weight: 500;
+  user-select: none;
+  color: var(--markline-t-color);
+}
+
+/* showDivider=false 时隐藏分隔符（通过 body class 控制）*/
+body:not(.markline-show-divider) .markline-translation-divider {
+  display: none;
+}
+
+.markline-translation-text {
+  /* 文本部分，继承父样式 */
+}
+
+/* ===== 仅译文模式下被隐藏的原文节点 ===== */
+.markline-original-hidden {
+  display: none !important;
+}
+
+/* ===== 鼠标悬停浮窗 ===== */
+.markline-hover-popup {
+  position: absolute;
+  z-index: 2147483646;
+  background: #1a202c;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 400px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  word-wrap: break-word;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.markline-hover-popup::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 16px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #1a202c;
+}
+
+/* ===== 划词翻译浮窗（美观素雅专业简约）===== */
+.markline-selection-popup {
+  position: absolute;
+  z-index: 2147483646;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  border-radius: 12px;
+  padding: 14px 18px;
+  font-size: 14px;
+  line-height: 1.65;
+  min-width: 240px;
+  max-width: min(440px, 90vw);
+  max-height: min(400px, 70vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 4px 12px rgba(15, 23, 42, 0.06),
+    0 12px 32px rgba(15, 23, 42, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #1e293b;
+  animation: markline-popup-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.markline-selection-popup.dragging {
+  animation: none;
+  transition: none;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 8px 20px rgba(15, 23, 42, 0.12),
+    0 20px 48px rgba(15, 23, 42, 0.16);
+  cursor: grabbing;
+}
+
+/* 固定状态（拖拽后）：右上角显示关闭按钮，手柄常亮 */
+.markline-selection-popup.pinned .markline-popup-handle {
+  background: rgba(99, 102, 241, 0.5);
+}
+.markline-selection-popup.pinned .markline-popup-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 拖拽手柄（顶部细条，hover 时变蓝表示可拖拽）*/
+.markline-popup-handle {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 2px;
+  cursor: grab;
+  transition: background 150ms, width 150ms;
+}
+.markline-popup-handle:hover {
+  background: rgba(99, 102, 241, 0.6);
+  width: 36px;
+}
+.markline-selection-popup.dragging .markline-popup-handle {
+  background: rgba(99, 102, 241, 0.8);
+  cursor: grabbing;
+}
+
+/* 关闭按钮（右上角，默认半透明，hover/pinned 时显示）*/
+.markline-popup-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms, background 150ms, color 150ms;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.markline-popup-close:hover {
+  opacity: 1;
+  pointer-events: auto;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+.markline-selection-popup:hover .markline-popup-close {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+.markline-selection-popup:hover .markline-popup-close:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+@keyframes markline-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 自定义滚动条（细腻不抢眼）*/
+.markline-selection-popup::-webkit-scrollbar {
+  width: 6px;
+}
+.markline-selection-popup::-webkit-scrollbar-track {
+  background: transparent;
+}
+.markline-selection-popup::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+.markline-selection-popup::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* 原文区：完整显示不截断，超长时内部滚动 */
+.markline-selection-popup .markline-popup-orig {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* 译文区：主信息，深色加粗 */
+.markline-selection-popup .markline-popup-trans {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ===== 划词字典增强（单词翻译）===== */
+.markline-selection-popup .markline-popup-phonetic {
+  color: #94a3b8;
+  font-size: 13px;
+  font-style: italic;
+  margin: 2px 0 8px;
+  letter-spacing: 0.2px;
+}
+
+.markline-selection-popup .markline-popup-defs {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(226, 232, 240, 0.7);
+}
+
+.markline-selection-popup .markline-popup-def {
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.markline-selection-popup .markline-popup-def:last-child {
+  margin-bottom: 0;
+}
+
+.markline-selection-popup .markline-popup-pos {
+  display: inline-block;
+  color: #6366f1;
+  font-style: italic;
+  font-size: 12px;
+  min-width: 40px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.markline-selection-popup .markline-popup-meaning {
+  color: #334155;
+  flex: 1;
+}
+
+.markline-selection-popup .markline-popup-example {
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 4px;
+  padding-left: 48px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.markline-selection-popup .markline-popup-example-trans {
+  color: #cbd5e1;
+}
+
+.markline-selection-popup .markline-popup-analysis {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(226, 232, 240, 0.8);
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 小箭头指向选中区域 */
+.markline-selection-popup::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid rgba(255, 255, 255, 0.96);
+}
+
+/* 暗色主题适配 */
+@media (prefers-color-scheme: dark) {
+  .markline-selection-popup {
+    background: rgba(30, 41, 59, 0.96);
+    border-color: rgba(71, 85, 105, 0.5);
+    color: #e2e8f0;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.2),
+      0 4px 12px rgba(0, 0, 0, 0.25),
+      0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+  .markline-selection-popup .markline-popup-orig {
+    color: #94a3b8;
+    border-bottom-color: rgba(71, 85, 105, 0.5);
+  }
+  .markline-selection-popup .markline-popup-trans {
+    color: #f1f5f9;
+  }
+  .markline-selection-popup .markline-popup-meaning {
+    color: #cbd5e1;
+  }
+  .markline-selection-popup .markline-popup-defs,
+  .markline-selection-popup .markline-popup-orig {
+    border-top-color: rgba(71, 85, 105, 0.5);
+    border-bottom-color: rgba(71, 85, 105, 0.5);
+  }
+  .markline-selection-popup .markline-popup-analysis {
+    border-top-color: rgba(71, 85, 105, 0.6);
+    color: #94a3b8;
+  }
+  .markline-selection-popup .markline-popup-pos {
+    color: #818cf8;
+  }
+  .markline-selection-popup .markline-popup-phonetic {
+    color: #64748b;
+  }
+  .markline-selection-popup .markline-popup-example {
+    color: #64748b;
+  }
+  .markline-selection-popup::before {
+    border-bottom-color: rgba(30, 41, 59, 0.96);
+  }
+  .markline-selection-popup::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.4);
+  }
+}
