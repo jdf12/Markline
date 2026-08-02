@@ -71,11 +71,21 @@
       }
     ]
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/ai-nav-injector.js"],
+      "css": ["content/ai-nav-injector.css"],
+      "run_at": "document_idle"
+    }
+  ],
   "web_accessible_resources": [
     {
       "resources": [
         "content/translate-injector.js",
-        "content/translate-injector.css"
+        "content/translate-injector.css",
+        "content/ai-nav-injector.js",
+        "content/ai-nav-injector.css"
       ],
       "matches": ["<all_urls>"]
     }

@@ -1,0 +1,6 @@
+/* content/ai-nav-injector.css
+ * AI 对话导航注入样式占位文件。
+ * 实际样式全部内联在 Shadow DOM 中（见 ai-nav-injector.js 的 ensureUI()），
+ * 此文件仅用于 manifest.content_scripts 的 css 字段占位，确保注入流程正常。
+ * 若未来需要外联样式，可在此文件中补充并改为 Shadow DOM adoptStyleSheet 方式。
+ */

@@ -36,6 +36,21 @@ const shortcutConflicts = document.getElementById('shortcutConflicts');
 const conflictDetails = document.getElementById('conflictDetails');
 const openShortcutsPageLink = document.getElementById('openShortcutsPageLink');
 
+// ===== AI 目录导航设置 DOM 引用 =====
+const ainavEnabledToggle = document.getElementById('ainavEnabledToggle');
+const ainavFloatingBallToggle = document.getElementById('ainavFloatingBallToggle');
+const ainavShowTimelineToggle = document.getElementById('ainavShowTimelineToggle');
+const ainavTimelinePositionSelect = document.getElementById('ainavTimelinePositionSelect');
+const ainavTimelineOnlyUserToggle = document.getElementById('ainavTimelineOnlyUserToggle');
+const ainavSidebarWidthInput = document.getElementById('ainavSidebarWidthInput');
+const ainavThemeSelect = document.getElementById('ainavThemeSelect');
+const ainavFontSizeSelect = document.getElementById('ainavFontSizeSelect');
+const ainavMaxLengthInput = document.getElementById('ainavMaxLengthInput');
+const ainavMinLengthInput = document.getElementById('ainavMinLengthInput');
+const ainavShowNumberToggle = document.getElementById('ainavShowNumberToggle');
+const ainavAutoScrollToggle = document.getElementById('ainavAutoScrollToggle');
+const ainavResetBtn = document.getElementById('ainavResetBtn');
+
 // ===== RSS 订阅设置 DOM 引用 =====
 const rssPollIntervalSelect = document.getElementById('rssPollIntervalSelect');
 const rssMaxItemsSelect = document.getElementById('rssMaxItemsSelect');
@@ -405,6 +420,36 @@ async function refreshPreviewCacheStats() {
 
 async function savePreviewSetting(patch) {
   await chrome.runtime.sendMessage({ action: 'updatePreviewSettings', patch });
+}
+
+// ===== AI 目录导航设置 =====
+async function loadAiNavSettings() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'aiNavGetSettings' });
+    const s = (res && res.settings) || {};
+    ainavEnabledToggle.checked = s.enabled !== false;
+    ainavFloatingBallToggle.checked = s.floatingBallEnabled !== false;
+    ainavShowTimelineToggle.checked = s.showTimeline !== false;
+    ainavTimelinePositionSelect.value = s.timelinePosition || 'free';
+    ainavTimelineOnlyUserToggle.checked = !!s.timelineOnlyUser;
+    ainavSidebarWidthInput.value = s.sidebarWidth ?? 360;
+    ainavThemeSelect.value = s.theme || 'auto';
+    ainavFontSizeSelect.value = s.fontSize || 'medium';
+    ainavMaxLengthInput.value = s.maxLength ?? 140;
+    ainavMinLengthInput.value = s.minLength ?? 0;
+    ainavShowNumberToggle.checked = s.showNumber !== false;
+    ainavAutoScrollToggle.checked = s.autoScrollActive !== false;
+  } catch (e) {
+    ainavEnabledToggle.checked = true;
+    ainavFloatingBallToggle.checked = true;
+    ainavShowTimelineToggle.checked = true;
+    ainavShowNumberToggle.checked = true;
+    ainavAutoScrollToggle.checked = true;
+  }
+}
+
+async function saveAiNavSetting(patch) {
+  await chrome.runtime.sendMessage({ action: 'aiNavSetSettings', patch });
 }
 
 // ===== RSS 订阅设置 =====
@@ -1081,6 +1126,67 @@ clearPreviewCacheBtn.addEventListener('click', async () => {
 
 mdiWindowEnabledToggle.addEventListener('change', async (e) => {
   await savePreviewSetting({ mdiWindowEnabled: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+
+// ===== AI 目录导航设置事件绑定 =====
+ainavEnabledToggle.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ enabled: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavFloatingBallToggle.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ floatingBallEnabled: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavShowTimelineToggle.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ showTimeline: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavTimelinePositionSelect.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ timelinePosition: e.target.value });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavTimelineOnlyUserToggle.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ timelineOnlyUser: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavSidebarWidthInput.addEventListener('change', async (e) => {
+  const v = Math.max(280, Math.min(520, parseInt(e.target.value, 10) || 360));
+  e.target.value = v;
+  await saveAiNavSetting({ sidebarWidth: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavThemeSelect.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ theme: e.target.value });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavFontSizeSelect.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ fontSize: e.target.value });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavMaxLengthInput.addEventListener('change', async (e) => {
+  const v = Math.max(40, Math.min(260, parseInt(e.target.value, 10) || 140));
+  e.target.value = v;
+  await saveAiNavSetting({ maxLength: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavMinLengthInput.addEventListener('change', async (e) => {
+  const v = Math.max(0, Math.min(30, parseInt(e.target.value, 10) || 0));
+  e.target.value = v;
+  await saveAiNavSetting({ minLength: v });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavShowNumberToggle.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ showNumber: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavAutoScrollToggle.addEventListener('change', async (e) => {
+  await saveAiNavSetting({ autoScrollActive: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+ainavResetBtn.addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ action: 'aiNavResetSettings' });
+  await loadAiNavSettings();
   showToast(i18n('settingsSaved'), 'success');
 });
 
@@ -2234,6 +2340,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadCheckerSettings();
   loadRetentionDays();
   loadPreviewSettings();
+  loadAiNavSettings();
   loadShortcutSettings();
   loadTagRules();
   loadAISettings();

@@ -23,6 +23,10 @@ importScripts('voice-bridge-client.js');
 importScripts('../shared/translate-store.js');
 importScripts('../shared/translate-engine.js');
 importScripts('translate-channel.js');
+// 引入 AI 对话导航模块（在 AI 平台注入悬浮目录；27 平台选择器适配）
+importScripts('../shared/ai-platforms.js');
+importScripts('../shared/ai-nav-store.js');
+importScripts('ai-nav-channel.js');
 
 // ===== 正文内容提取 =====
 async function extractActiveTabContent(tabId, url) {
@@ -1167,6 +1171,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse(result);
         } catch (err) {
           sendResponse({ success: false, error: err.message || String(err) });
+        }
+      })();
+      return true;
+    }
+
+    // ===== AI 对话导航模块（aiNav*）=====
+    case 'aiNavGetSettings':
+    case 'aiNavSetSettings':
+    case 'aiNavResetSettings':
+    case 'aiNavGetTemplate':
+    case 'aiNavState':
+    case 'aiNavGetState':
+    case 'aiNavScrollTo':
+    case 'aiNavScrollContainer':
+    case 'aiNavRefresh':
+    case 'aiNavToggleBookmark':
+    case 'aiNavGetBookmarks':
+    case 'aiNavSetSidebarState':
+    case 'aiNavOpenPanel':
+    case 'aiNavGetAllPlatforms': {
+      (async () => {
+        try {
+          const result = await self.AiNavChannel.handle(message, sender, sendResponse);
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message || String(err) });
         }
       })();
       return true;
