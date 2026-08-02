@@ -404,7 +404,14 @@
     const sel = _template.selectors;
     const container = querySelectorMulti(sel.container);
     if (!container) {
-      // 容器未渲染，安排重试
+      // 容器未渲染（如离开对话页）：清空残留数据并刷新 UI，再安排重试
+      if (_messages.length > 0) {
+        _messages = [];
+        _activeId = null;
+        _selectedMessageIds.clear();
+        renderSidebarList();
+        renderTimeline();
+      }
       scheduleRetry();
       return;
     }
@@ -412,6 +419,14 @@
     const userEls = querySelectorAllMulti(sel.userItem);
     const assistantEls = sel.assistantItem ? querySelectorAllMulti(sel.assistantItem) : [];
     if (userEls.length === 0 && assistantEls.length === 0) {
+      // 容器存在但无消息（如返回首页/对话列表）：清空已解析数据并刷新 UI，再安排重试
+      if (_messages.length > 0) {
+        _messages = [];
+        _activeId = null;
+        _selectedMessageIds.clear();
+        renderSidebarList();
+        renderTimeline();
+      }
       scheduleRetry();
       return;
     }
@@ -2077,7 +2092,9 @@ ${m.content}
 
   function renderTimeline() {
     if (!_timeline) return;
-    const show = isTimelineEnabled();
+    const enabled = isTimelineEnabled();
+    // 无消息时直接隐藏整个时间轴容器（含胶囊背景与阴影），避免清空节点后残留外框
+    const show = enabled && _messages.length > 0;
     _timeline.classList.toggle('is-hidden', !show);
     if (!show) return;
 
@@ -2264,7 +2281,9 @@ ${m.content}
         _messages = [];
         _activeId = null;
         _activeMessageSearch = null;
+        _retryCount = 0;
         renderSidebarList();
+        renderTimeline();      // 同步清空时间轴节点，避免残留上一个话题的节点
         setStatus('路由变化，重新解析...');
         // 等待新页面渲染
         setTimeout(() => {

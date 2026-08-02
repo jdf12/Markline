@@ -118,6 +118,16 @@ Markline（取自 **Mark** + **Book** + time**line**）是一款 Manifest V3 的
 - API Key 与 SMTP 授权码**加密存储**，仅在发送时于内存中解密。
 - 在**设置 → 推送**中配置。
 
+### 🧭 AI 对话目录导航
+- 在支持的 AI 对话站点（DeepSeek、豆包、千问/通义等）注入悬浮球 + 可折叠的侧边栏**消息目录**与纵向**数轴时间轴**，一键跳转到任意历史消息。
+- **侧边栏目录** —— 列出每条用户提问与 AI 回复，带角色图标、预览文本、点击滚动定位。支持书签、角色筛选（全部 / 用户 / AI / 已书签）、消息序号、滚动联动高亮。
+- **纵向数轴时间轴** —— 贴边的细长轨道（蓝圆=用户，菱形=AI）；悬停弹出预览浮层，点击跳转。三种位置模式：
+  - **自由拖拽**（默认）—— 可沿左右边缘任意拖动，松手吸附到最近一侧并跨会话记忆。
+  - **左侧 / 右侧** —— 时间轴固定吸附到该侧，不可拖拽。
+- **消息内搜索** —— 从侧边栏打开单条消息的搜索框；匹配关键词在页内高亮（`<mark>`），输入时搜索框稳定不消失（兼容侧边栏重渲染与图片加载回流）。
+- **消息宽度控制** —— 悬浮球悬停菜单可调整页面上 AI 回复的渲染宽度。
+- 在**设置 → AI 目录导航**中配置（总开关、悬浮球、时间轴、位置、侧边栏宽度、主题、字体密度、预览长度、过滤短回复、序号、滚动联动、恢复默认）。
+
 ---
 
 ## 🖥️ 本地桥接程序（可选）
@@ -181,6 +191,8 @@ chrome-bookmark-timeline/
 │   └── requirements-voice.txt # edge-tts + aiohttp
 ├── background/
 │   ├── background.js          # Service Worker（同步、增删改、检查、闹钟、Omnibox、RSS、推送）
+│   ├── ai-nav-channel.js      # AI 对话导航：模板/设置消息通道
+│   ├── translate-channel.js   # 划词翻译消息通道
 │   ├── voice-bridge-client.js # 语音桥接 HTTP 客户端
 │   ├── push-channel.js        # RSS → 邮箱推送（即时 / 每日，AI 早报）
 │   ├── feed-fetcher.js        # RSS 轮询调度
@@ -191,20 +203,28 @@ chrome-bookmark-timeline/
 │       ├── Readability.js      # Mozilla Readability
 │       └── cytoscape.min.js   # 图谱库
 ├── content/
-│   └── content-extractor.js   # 按需内容提取（ISOLATED 世界）
+│   ├── content-extractor.js   # 按需内容提取（ISOLATED 世界）
+│   ├── ai-nav-injector.js     # AI 对话导航 UI（侧边栏 + 时间轴 + 搜索）
+│   ├── ai-nav-injector.css    # 导航样式
+│   ├── translate-injector.js  # 划词翻译浮层
+│   └── translate-injector.css # 翻译浮层样式
 ├── shared/
 │   ├── i18n.js                # 运行时 i18n（en + zh_CN，可实时切换）
 │   ├── smart-tagger.js        # 规则引擎标签器（200+ 规则）
 │   ├── ai-tagger.js           # 可选云端 AI 层
 │   ├── ai-logger.js           # AI 分类日志
+│   ├── ai-nav-store.js        # AI 导航设置存储 + 默认值
+│   ├── ai-platforms.js        # AI 对话站点模板（DeepSeek/豆包/千问…）
 │   ├── bookmark-stats.js      # 统计与健康分
 │   ├── simple-charts.js       # 手写 SVG 图表
 │   ├── rss-parser.js          # RSS/Atom 解析
 │   ├── feed-store.js          # RSS 源/文章存储
+│   ├── translate-store.js     # 翻译设置存储
+│   ├── translate-engine.js    # 翻译供应商引擎
 │   └── voice-store.js         # 语音设置存储
 └── pages/
     ├── popup/                 # 主时间线弹窗
-    ├── settings/              # 多面板设置页（含 RSS / 推送 / 语音）
+    ├── settings/              # 多面板设置页（含 AI 导航 / 翻译 / RSS / 推送 / 语音）
     ├── checker/               # 失效书签检查页
     ├── graph/                # 知识图谱 + 复习
     └── standalone/            # 独立阅读窗口（MDI + RSS + 语音播放器）

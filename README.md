@@ -118,6 +118,16 @@ No build step, no dependencies, no framework — pure vanilla JS/HTML/CSS. Load 
 - API keys and SMTP passwords are **encrypted at rest** and only decrypted in memory when sending.
 - Configure in **Settings → Push**.
 
+### 🧭 AI Conversation Navigator
+- Injects a floating ball + collapsible sidebar **table of contents** and a vertical **timeline rail** on supported AI chat sites (DeepSeek, Doubao, Qianwen/Tongyi, and more), letting you jump to any historical message in one click.
+- **Sidebar TOC** — lists every user question and AI reply with role icons, preview text, and click-to-scroll. Supports bookmarks, role filters (all / user / assistant / bookmarked), message numbering, and scroll-spy highlight.
+- **Vertical timeline rail** — a slim rail of dots (blue = user, diamond = assistant) anchored to the page edge; hover for a floating preview, click to jump. Three placement modes:
+  - **Free drag** (default) — drag the rail anywhere along the left/right edge; it snaps to the nearest side and remembers the side across sessions.
+  - **Left / Right** — the rail is fixed to that side and cannot be dragged.
+- **In-message search** — open a per-message search box from the sidebar; matched keywords are highlighted inline (`<mark>`) and the box stays put while typing (survives sidebar re-renders and image-load reflows).
+- **Message width control** — a hover menu on the floating ball lets you adjust the rendered width of AI replies on the page.
+- Configure in **Settings → AI Conversation Navigator** (master switch, floating ball, timeline, position, sidebar width, theme, font density, preview length, short-reply filter, numbering, scroll-spy, reset to defaults).
+
 ---
 
 ## 🖥️ Local Bridges (Optional)
@@ -181,6 +191,8 @@ chrome-bookmark-timeline/
 │   └── requirements-voice.txt # edge-tts + aiohttp
 ├── background/
 │   ├── background.js          # Service worker (sync, CRUD, checker, alarms, omnibox, RSS, push)
+│   ├── ai-nav-channel.js      # AI Conversation Navigator: template/settings channel
+│   ├── translate-channel.js   # Inline translation message channel
 │   ├── voice-bridge-client.js # Voice bridge HTTP client
 │   ├── push-channel.js        # RSS → email push (instant / daily, AI briefing)
 │   ├── feed-fetcher.js        # RSS polling scheduler
@@ -191,20 +203,28 @@ chrome-bookmark-timeline/
 │       ├── Readability.js      # Mozilla Readability
 │       └── cytoscape.min.js   # Graph library
 ├── content/
-│   └── content-extractor.js   # On-demand content extraction (ISOLATED world)
+│   ├── content-extractor.js   # On-demand content extraction (ISOLATED world)
+│   ├── ai-nav-injector.js     # AI Conversation Navigator UI (sidebar + timeline + search)
+│   ├── ai-nav-injector.css    # Navigator styles
+│   ├── translate-injector.js  # Inline translation overlay
+│   └── translate-injector.css # Translation overlay styles
 ├── shared/
 │   ├── i18n.js                # Runtime i18n (en + zh_CN, switchable live)
 │   ├── smart-tagger.js        # Rule-engine tagger (200+ rules)
 │   ├── ai-tagger.js           # Optional cloud AI layer
 │   ├── ai-logger.js           # AI classification logs
+│   ├── ai-nav-store.js        # AI Navigator settings storage + defaults
+│   ├── ai-platforms.js        # AI chat site templates (DeepSeek/Doubao/Qianwen…)
 │   ├── bookmark-stats.js      # Statistics & health score
 │   ├── simple-charts.js       # Hand-written SVG charts
 │   ├── rss-parser.js          # RSS/Atom parsing
 │   ├── feed-store.js          # RSS feed/item storage
+│   ├── translate-store.js     # Translation settings storage
+│   ├── translate-engine.js    # Translation provider engine
 │   └── voice-store.js         # Voice settings storage
 └── pages/
     ├── popup/                 # Main timeline popup
-    ├── settings/              # Multi-panel settings (incl. RSS / Push / Voice)
+    ├── settings/              # Multi-panel settings (incl. AI Nav / Translate / RSS / Push / Voice)
     ├── checker/               # Broken-bookmark checker
     ├── graph/                # Knowledge graph + review
     └── standalone/            # Standalone reading window (MDI + RSS + voice player)
