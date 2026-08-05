@@ -246,6 +246,10 @@ navItems.forEach(item => {
     if (panelId === 'translate') {
       loadTranslateSettings();
     }
+    // 切换到数据面板时刷新快照列表
+    if (panelId === 'data') {
+      loadSnapshots();
+    }
   });
 });
 
@@ -1013,9 +1017,13 @@ async function clearAILogsUI() {
 }
 
 function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ===== 事件绑定 =====
@@ -1673,6 +1681,222 @@ if (importFileInput) {
     importFileInput.value = '';
   });
 }
+
+// ===== 书签快照管理 =====
+const snapshotCreateBtn = document.getElementById('snapshotCreateBtn');
+const snapshotClearAutoBtn = document.getElementById('snapshotClearAutoBtn');
+const snapshotListEl = document.getElementById('snapshotList');
+const snapshotStorageEl = document.getElementById('snapshotStorage');
+// 快照策略控件
+const snapshotAutoEnabledToggle = document.getElementById('snapshotAutoEnabledToggle');
+const snapshotAutoFrequencySelect = document.getElementById('snapshotAutoFrequencySelect');
+const snapshotMaxCountSelect = document.getElementById('snapshotMaxCountSelect');
+const snapshotAutoRetentionDaysSelect = document.getElementById('snapshotAutoRetentionDaysSelect');
+const snapshotPreActionEnabledToggle = document.getElementById('snapshotPreActionEnabledToggle');
+const snapshotProtectManualToggle = document.getElementById('snapshotProtectManualToggle');
+
+const SNAPSHOT_REASON_I18N = {
+  'manual': 'snapshotReasonManual',
+  'auto': 'snapshotReasonAuto',
+  'pre_import': 'snapshotReasonPreImport',
+  'pre_sync': 'snapshotReasonPreSync',
+  'pre_delete': 'snapshotReasonPreDelete',
+  'pre_restore': 'snapshotReasonPreRestore'
+};
+
+function formatSnapshotTime(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+async function loadSnapshots() {
+  if (!snapshotListEl) return;
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'snapshotList' });
+    if (!res?.success) return;
+    renderSnapshots(res.snapshots || [], res.bytes || 0);
+  } catch (e) {
+    console.warn('Load snapshots failed:', e);
+  }
+}
+
+// ===== 快照策略设置 =====
+async function loadSnapshotSettings() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'getAppSettings' });
+    const s = (res && res.settings) || {};
+    // 自动快照开关（默认 true）
+    snapshotAutoEnabledToggle.checked = s.snapshotAutoEnabled !== false;
+    // 频率（默认 daily）
+    snapshotAutoFrequencySelect.value = s.snapshotAutoFrequency || 'daily';
+    // 最大数量（默认 20）
+    snapshotMaxCountSelect.value = String(s.snapshotMaxCount || 20);
+    // 保留天数（默认 7）
+    snapshotAutoRetentionDaysSelect.value = String(s.snapshotAutoRetentionDays || 7);
+    // 操作前快照（默认 true）
+    snapshotPreActionEnabledToggle.checked = s.snapshotPreActionEnabled !== false;
+    // 保护手动快照（默认 true）
+    snapshotProtectManualToggle.checked = s.snapshotProtectManual !== false;
+    // 频率=off 时同步关闭自动快照开关
+    syncSnapshotAutoToggleState();
+  } catch (e) {
+    console.warn('Load snapshot settings failed:', e);
+  }
+}
+
+// 频率=off 时禁用自动快照开关；其他频率时启用
+function syncSnapshotAutoToggleState() {
+  const freq = snapshotAutoFrequencySelect.value;
+  if (freq === 'off') {
+    snapshotAutoEnabledToggle.checked = false;
+    snapshotAutoEnabledToggle.disabled = true;
+  } else {
+    snapshotAutoEnabledToggle.disabled = false;
+  }
+}
+
+async function saveSnapshotSettings(patch) {
+  await chrome.runtime.sendMessage({
+    action: 'updateAppSettings',
+    patch
+  });
+}
+
+function renderSnapshots(snapshots, bytes) {
+  // 存储占用
+  if (snapshotStorageEl) {
+    if (bytes > 0) {
+      snapshotStorageEl.style.display = '';
+      snapshotStorageEl.textContent = `${i18n('snapshotStorage')}: ${formatBytes(bytes)}`;
+    } else {
+      snapshotStorageEl.style.display = 'none';
+    }
+  }
+  // 列表
+  if (!snapshots || snapshots.length === 0) {
+    snapshotListEl.innerHTML = `<tr><td colspan="5" class="snapshot-empty">${i18n('noSnapshots') || 'No snapshots yet'}</td></tr>`;
+    return;
+  }
+  snapshotListEl.innerHTML = snapshots.map(s => {
+    const reasonText = i18n(SNAPSHOT_REASON_I18N[s.reason] || 'snapshotReasonManual') || s.reason;
+    const stats = s.stats || {};
+    return `
+      <tr data-id="${s.id}">
+        <td class="snap-time">${formatSnapshotTime(s.createdAt)}</td>
+        <td class="snap-type"><span class="snap-tag snap-${s.reason}">${reasonText}</span></td>
+        <td>${stats.bookmarkCount ?? 0}</td>
+        <td>${stats.taggedCount ?? 0}</td>
+        <td class="snap-actions">
+          <button class="btn btn-ghost snap-restore" data-id="${s.id}">${i18n('snapshotRestore') || 'Restore'}</button>
+          <button class="btn btn-ghost snap-delete" data-id="${s.id}">${i18n('snapshotDelete') || 'Delete'}</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // 绑定按钮事件
+  snapshotListEl.querySelectorAll('.snap-restore').forEach(btn => {
+    btn.addEventListener('click', () => handleSnapshotRestore(btn.dataset.id));
+  });
+  snapshotListEl.querySelectorAll('.snap-delete').forEach(btn => {
+    btn.addEventListener('click', () => handleSnapshotDelete(btn.dataset.id));
+  });
+}
+
+async function handleSnapshotCreate() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'snapshotCreate', label: '' });
+    if (res?.success) {
+      showToast(i18n('snapshotCreateSuccess') || 'Snapshot created', 'success');
+      await loadSnapshots();
+    } else {
+      showToast(res?.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function handleSnapshotRestore(id) {
+  const confirmMsg = i18n('snapshotRestoreConfirm') || 'Restore will overwrite current bookmarks. Continue?';
+  if (!window.confirm(confirmMsg)) return;
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'snapshotRestore', id });
+    if (res?.success) {
+      showToast((i18n('snapshotRestoreSuccess') || 'Restored $1 bookmarks').replace('$1', String(res.restoredCount || 0)), 'success');
+      await loadSnapshots();
+    } else {
+      showToast((i18n('snapshotRestoreFailed') || 'Restore failed') + ': ' + (res?.error || ''), 'error');
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function handleSnapshotDelete(id) {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'snapshotDelete', id });
+    if (res?.success) {
+      showToast(i18n('snapshotDeleteSuccess') || 'Snapshot deleted', 'success');
+      await loadSnapshots();
+    } else {
+      showToast(res?.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function handleSnapshotClearAuto() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'snapshotClearAuto' });
+    if (res?.success) {
+      showToast((i18n('snapshotClearAutoSuccess') || 'Cleared $1 auto snapshots').replace('$1', String(res.removed || 0)), 'success');
+      await loadSnapshots();
+    } else {
+      showToast(res?.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+if (snapshotCreateBtn) snapshotCreateBtn.addEventListener('click', handleSnapshotCreate);
+if (snapshotClearAutoBtn) snapshotClearAutoBtn.addEventListener('click', handleSnapshotClearAuto);
+
+// 快照策略事件绑定
+snapshotAutoEnabledToggle.addEventListener('change', async (e) => {
+  await saveSnapshotSettings({ snapshotAutoEnabled: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+snapshotAutoFrequencySelect.addEventListener('change', async (e) => {
+  syncSnapshotAutoToggleState();
+  await saveSnapshotSettings({ snapshotAutoFrequency: e.target.value });
+  showToast(i18n('settingsSaved'), 'success');
+});
+snapshotMaxCountSelect.addEventListener('change', async (e) => {
+  await saveSnapshotSettings({ snapshotMaxCount: Number(e.target.value) });
+  showToast(i18n('settingsSaved'), 'success');
+});
+snapshotAutoRetentionDaysSelect.addEventListener('change', async (e) => {
+  await saveSnapshotSettings({ snapshotAutoRetentionDays: Number(e.target.value) });
+  showToast(i18n('settingsSaved'), 'success');
+});
+snapshotPreActionEnabledToggle.addEventListener('change', async (e) => {
+  await saveSnapshotSettings({ snapshotPreActionEnabled: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
+snapshotProtectManualToggle.addEventListener('change', async (e) => {
+  await saveSnapshotSettings({ snapshotProtectManual: e.target.checked });
+  showToast(i18n('settingsSaved'), 'success');
+});
 
 // ===== 监听存储变化 =====
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -2339,6 +2563,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadLanguage();
   loadCheckerSettings();
   loadRetentionDays();
+  loadSnapshotSettings();
   loadPreviewSettings();
   loadAiNavSettings();
   loadShortcutSettings();

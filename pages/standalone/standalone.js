@@ -84,11 +84,18 @@ let mdiWindowEnabled = false;
 
 // 分页
 const PAGE_SIZE = 80;
+const GRID_PAGE_SIZE = 50;
+const LIST_PAGE_SIZE = 50;
 let renderQueue = [];
 let renderedCount = 0;
 let isLoadingMore = false;
 let currentGroupLabel = '';
 let currentHighlightRanges = null;
+// 网格/列表视图分页状态（与时间线分页独立，避免视图切换时状态污染）
+let gridRenderQueue = [];
+let gridRenderedCount = 0;
+let listRenderQueue = [];
+let listRenderedCount = 0;
 
 // 命令面板
 let paletteOpen = false;
@@ -146,9 +153,13 @@ function normalizeUrl(url) {
 
 function escapeHtml(str) {
   if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // 纯字符串替换，避免每次创建临时 DOM 节点（万级渲染时减少 GC 压力）
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function escapeRegExp(s) {
@@ -192,22 +203,32 @@ function formatRelativeTime(timestamp) {
   return i18n('dateWithYear', [monthLabel, String(day), String(year)]) + ` ${hours24}:${mins}`;
 }
 
+// 日期分组标题（带缓存，避免8万次 new Date()）
+const _dateGroupLabelCache = new Map();
 function getDateGroupLabel(timestamp) {
+  // 同一天的 label 相同，以天为 key 缓存
+  const dayKey = Math.floor(timestamp / 86400000);
+  if (_dateGroupLabelCache.has(dayKey)) return _dateGroupLabelCache.get(dayKey);
+
   const now = new Date();
   const date = new Date(timestamp);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.floor((today - target) / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return i18n('today');
-  if (diffDays === 1) return i18n('yesterday');
-  if (diffDays < 7) return i18n('daysAgo', [String(diffDays)]);
-
-  const year = date.getFullYear();
-  const monthLabel = i18n('month' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][date.getMonth()]);
-  const day = date.getDate();
-  if (year === now.getFullYear()) return i18n('dateSameYear', [monthLabel, String(day)]);
-  return i18n('dateWithYear', [monthLabel, String(day), String(year)]);
+  let label;
+  if (diffDays === 0) label = i18n('today');
+  else if (diffDays === 1) label = i18n('yesterday');
+  else if (diffDays < 7) label = i18n('daysAgo', [String(diffDays)]);
+  else {
+    const year = date.getFullYear();
+    const monthLabel = i18n('month' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][date.getMonth()]);
+    const day = date.getDate();
+    if (year === now.getFullYear()) label = i18n('dateSameYear', [monthLabel, String(day)]);
+    else label = i18n('dateWithYear', [monthLabel, String(day), String(year)]);
+  }
+  _dateGroupLabelCache.set(dayKey, label);
+  return label;
 }
 
 // 热力颜色
@@ -289,10 +310,16 @@ function smartSearch(query, list) {
   const tokens = q.split(/\s+/).filter(Boolean);
   const results = [];
   for (const item of list) {
+    // domain 实时从 URL 推导（精简版数据不含 domain 字段）
+    let domainText = '';
+    if (item.domain) domainText = item.domain;
+    else if (item.url) {
+      try { domainText = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
+    }
     const fields = [
       { text: item.title || '', weight: 100, key: 'title' },
       { text: item.url || '', weight: 40, key: 'url' },
-      { text: item.domain || '', weight: 30, key: 'domain' },
+      { text: domainText, weight: 30, key: 'domain' },
       { text: item.folderPath || item.folderName || '', weight: 20, key: 'folder' },
       { text: (item.tags || []).join(' '), weight: 60, key: 'tags' }
     ];
@@ -336,19 +363,42 @@ function computeDuplicates(list) {
 
 // ===== 数据通信 =====
 async function fetchBookmarks() {
-  const res = await chrome.runtime.sendMessage({ action: 'getBookmarks' });
+  // 使用精简版接口，减少 sendMessage 结构化克隆开销（8万条传输量减约40%）
+  const res = await chrome.runtime.sendMessage({ action: 'getBookmarksLite' });
   if (res && res.success) return res.bookmarks || res.data || [];
   return [];
 }
 
 async function refreshBookmarkData({ keepFilter = true } = {}) {
-  await chrome.runtime.sendMessage({ action: 'refreshClickCounts' }).catch(() => {});
+  // 不再在加载时触发 refreshClickCounts（8万书签会触发8万次 history API 请求）
   const bookmarks = await fetchBookmarks();
   allBookmarks = bookmarks;
-  duplicateIds = computeDuplicates(allBookmarks);
-  await collectAllTags();
-  renderTagFilter();
+
+  // 让出一帧：让 loading 动画有机会渲染，再做繁重的同步处理
+  await new Promise(r => requestAnimationFrame(() => r()));
+
+  // 首屏优先：立即渲染书签列表（不等待重复检测和标签聚合）
   filterBookmarks(saSearchInput.value);
+
+  // 延后执行：重复检测 + 标签聚合 + 标签栏渲染（用 idle 回调避免阻塞首屏）
+  const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 50));
+  scheduleIdle(async () => {
+    duplicateIds = computeDuplicates(allBookmarks);
+    await collectAllTags();
+    renderTagFilter();
+    // 重复标记就绪后，刷新当前可见页以显示 dup 徽章
+    refreshVisibleItems();
+  });
+}
+
+// 刷新当前已渲染的书签元素（用于延后就绪的 duplicateIds 等状态）
+function refreshVisibleItems() {
+  const items = saTimelineView.querySelectorAll('.sa-bookmark-item');
+  items.forEach(el => {
+    const id = el.dataset.id;
+    if (duplicateIds.has(id)) el.classList.add('sa-bookmark-item--dup');
+    else el.classList.remove('sa-bookmark-item--dup');
+  });
 }
 
 async function syncAll() {
@@ -415,16 +465,40 @@ async function getTagColor(tag) {
 
 async function collectAllTags() {
   allTags.clear();
+  // 第一遍：同步收集所有标签及其计数（避免逐标签 await storage）
+  const tagCounts = new Map();
   for (const item of allBookmarks) {
     if (item.tags && item.tags.length > 0) {
       for (const tag of item.tags) {
-        if (!allTags.has(tag)) {
-          const color = await getTagColor(tag);
-          allTags.set(tag, { count: 0, color });
-        }
-        allTags.get(tag).count++;
+        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
       }
     }
+  }
+  if (tagCounts.size === 0) return;
+
+  // 批量读取标签颜色（一次 storage 调用，而非每个标签一次）
+  let colors = {};
+  try {
+    const result = await chrome.storage.local.get('tag_colors');
+    colors = result['tag_colors'] || {};
+  } catch {}
+
+  // 为缺失的标签生成颜色
+  let hasNewColors = false;
+  for (const tag of tagCounts.keys()) {
+    if (!colors[tag]) {
+      let hash = 0;
+      for (let i = 0; i < tag.length; i++) hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+      const hue = Math.abs(hash) % 360;
+      colors[tag] = `hsl(${hue}, 65%, 50%)`;
+      hasNewColors = true;
+    }
+    allTags.set(tag, { count: tagCounts.get(tag), color: colors[tag] });
+  }
+
+  // 批量保存新颜色（一次 storage 调用）
+  if (hasNewColors) {
+    try { await chrome.storage.local.set({ tag_colors: colors }); } catch {}
   }
 }
 
@@ -656,10 +730,9 @@ $('saExpandAllBtn').addEventListener('click', () => {
 // ===== 过滤与渲染 =====
 function filterBookmarks(query) {
   currentFilter = query || '';
-  let filtered = [...allBookmarks];
 
-  // 文件夹过滤
-  filtered = filterByFolder(filtered);
+  // 文件夹过滤（无选中时返回原数组引用，避免复制8万条）
+  let filtered = filterByFolder(allBookmarks);
 
   // 标签过滤
   filtered = filterByTags(filtered);
@@ -746,30 +819,42 @@ function renderTimelineView(bookmarks) {
       renderQueue.push({ type: 'item', data: item, ranges });
     }
   } else if (isHeatMode) {
+    // 热度模式：一次排序，扁平展示
     const sorted = [...bookmarks].sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return sortMode === 'hottest' ? (b.clickCount || 0) - (a.clickCount || 0) : (a.clickCount || 0) - (b.clickCount || 0);
     });
     for (const item of sorted) renderQueue.push({ type: 'item', data: item });
   } else {
+    // 时间线模式：一次遍历完成排序 + pinned 分组 + 日期分组（避免多次 filter）
     const sorted = [...bookmarks].sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return sortMode === 'newest' ? b.dateAdded - a.dateAdded : a.dateAdded - b.dateAdded;
     });
 
-    const pinnedItems = sorted.filter(i => i.pinned);
+    const pinnedItems = [];
+    const groups = new Map();
+    const groupOrder = [];
+    for (const item of sorted) {
+      if (item.pinned) {
+        pinnedItems.push(item);
+      } else {
+        const label = getDateGroupLabel(item.dateAdded);
+        if (!groups.has(label)) {
+          groups.set(label, []);
+          groupOrder.push(label);
+        }
+        groups.get(label).push(item);
+      }
+    }
+
     if (pinnedItems.length > 0) {
       renderQueue.push({ type: 'header', label: i18n('pinnedGroup'), count: pinnedItems.length, pinnedGroup: true });
       for (const item of pinnedItems) renderQueue.push({ type: 'item', data: item });
     }
 
-    const groups = new Map();
-    for (const item of sorted.filter(i => !i.pinned)) {
-      const label = getDateGroupLabel(item.dateAdded);
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(item);
-    }
-    for (const [label, items] of groups) {
+    for (const label of groupOrder) {
+      const items = groups.get(label);
       renderQueue.push({ type: 'header', label, count: items.length });
       for (const item of items) renderQueue.push({ type: 'item', data: item });
     }
@@ -905,9 +990,19 @@ function createTimelineBookmarkElement(item, groupLabel, highlightRanges) {
 // ===== 网格视图 =====
 function renderGridView(bookmarks) {
   const sorted = sortBookmarks(bookmarks);
+  gridRenderQueue = sorted;
+  gridRenderedCount = 0;
   saGridView.innerHTML = '';
+  renderNextGridPage();
+}
 
-  for (const item of sorted) {
+function renderNextGridPage() {
+  if (gridRenderedCount >= gridRenderQueue.length) return;
+  const end = Math.min(gridRenderedCount + GRID_PAGE_SIZE, gridRenderQueue.length);
+  const fragment = document.createDocumentFragment();
+
+  for (let i = gridRenderedCount; i < end; i++) {
+    const item = gridRenderQueue[i];
     const card = document.createElement('div');
     card.className = 'sa-grid-card' + (item.pinned ? ' sa-grid-card--pinned' : '');
     card.dataset.id = item.id;
@@ -941,16 +1036,31 @@ function renderGridView(bookmarks) {
       <div class="sa-grid-card-meta"><span>${time}</span></div>
     `;
 
-    saGridView.appendChild(card);
+    fragment.appendChild(card);
   }
+
+  gridRenderedCount = end;
+  // 移除旧哨兵
+  const oldSentinel = saGridView.querySelector('.sa-load-more-sentinel');
+  if (oldSentinel) oldSentinel.remove();
+  // 还有未渲染项时追加哨兵
+  if (gridRenderedCount < gridRenderQueue.length) {
+    const sentinel = document.createElement('div');
+    sentinel.className = 'sa-load-more-sentinel';
+    sentinel.innerHTML = `<div class="sa-loading-dots"><span></span><span></span><span></span></div>`;
+    fragment.appendChild(sentinel);
+  }
+  saGridView.appendChild(fragment);
 }
 
 // ===== 列表视图 =====
 function renderListView(bookmarks) {
   const sorted = sortBookmarks(bookmarks);
+  listRenderQueue = sorted;
+  listRenderedCount = 0;
   saListView.innerHTML = '';
 
-  // 表头
+  // 表头（固定，不参与分页）
   const header = document.createElement('div');
   header.className = 'sa-list-header';
   header.innerHTML = `
@@ -962,7 +1072,16 @@ function renderListView(bookmarks) {
   `;
   saListView.appendChild(header);
 
-  for (const item of sorted) {
+  renderNextListPage();
+}
+
+function renderNextListPage() {
+  if (listRenderedCount >= listRenderQueue.length) return;
+  const end = Math.min(listRenderedCount + LIST_PAGE_SIZE, listRenderQueue.length);
+  const fragment = document.createDocumentFragment();
+
+  for (let i = listRenderedCount; i < end; i++) {
+    const item = listRenderQueue[i];
     const row = document.createElement('div');
     row.className = 'sa-list-item' + (item.pinned ? ' sa-list-item--pinned' : '');
     row.dataset.id = item.id;
@@ -985,8 +1104,19 @@ function renderListView(bookmarks) {
       </div>
     `;
 
-    saListView.appendChild(row);
+    fragment.appendChild(row);
   }
+
+  listRenderedCount = end;
+  const oldSentinel = saListView.querySelector('.sa-load-more-sentinel');
+  if (oldSentinel) oldSentinel.remove();
+  if (listRenderedCount < listRenderQueue.length) {
+    const sentinel = document.createElement('div');
+    sentinel.className = 'sa-load-more-sentinel';
+    sentinel.innerHTML = `<div class="sa-loading-dots"><span></span><span></span><span></span></div>`;
+    fragment.appendChild(sentinel);
+  }
+  saListView.appendChild(fragment);
 }
 
 // ===== 排序 =====
@@ -1624,12 +1754,27 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ===== 滚动加载更多 =====
 saContent.addEventListener('scroll', () => {
-  if (currentViewMode !== 'timeline' || isLoadingMore) return;
-  const sentinel = saTimelineView.querySelector('.sa-load-more-sentinel');
+  if (isLoadingMore) return;
+  let container, renderFn;
+  if (currentViewMode === 'timeline') {
+    container = saTimelineView;
+    renderFn = renderNextPage;
+  } else if (currentViewMode === 'grid') {
+    container = saGridView;
+    renderFn = renderNextGridPage;
+  } else if (currentViewMode === 'list') {
+    container = saListView;
+    renderFn = renderNextListPage;
+  } else {
+    return;
+  }
+  const sentinel = container.querySelector('.sa-load-more-sentinel');
   if (!sentinel) return;
   const rect = sentinel.getBoundingClientRect();
   if (rect.top < window.innerHeight + 100) {
-    renderNextPage();
+    isLoadingMore = true;
+    renderFn();
+    isLoadingMore = false;
   }
 });
 
@@ -2453,8 +2598,13 @@ async function startApp() {
   saSearchEmpty.style.display = 'none';
 
   try {
-    await loadFolderTree();
-    await refreshBookmarkData({ keepFilter: false });
+    // 并行：文件夹树 + 书签数据同时拉取（原串行等待浪费时间）
+    // 用 requestAnimationFrame 让 loading 先渲染出来，再开始拉数据
+    await new Promise(r => requestAnimationFrame(() => r()));
+    await Promise.all([
+      loadFolderTree(),
+      refreshBookmarkData({ keepFilter: false })
+    ]);
   } catch (e) {
     console.error('Failed to initialize:', e);
     showToast(i18n('loadFailedRetry'), 'error');

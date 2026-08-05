@@ -1673,7 +1673,7 @@ async function getTagColor(tag) {
 }
 
 // ===== 主分类函数（5 层信号融合 + 置信度评分） =====
-async function autoTagBookmark(bookmark) {
+async function autoTagBookmark(bookmark, options = {}) {
   const scores = {};   // tag -> total score
   const signals = {};  // tag -> string[] 信号来源
   const tagColors = {};
@@ -1811,7 +1811,8 @@ async function autoTagBookmark(bookmark) {
 
   // Layer 4.9: 云端 AI 分类增强（仅对低置信样本触发）
   // AI 结果作为独立信号加入排序，不替代规则引擎
-  if (typeof classifyWithAI === 'function') {
+  // 批量导入场景跳过 AI（避免串行超时导致 service worker 被终止）
+  if (!options.skipAI && typeof classifyWithAI === 'function') {
     const preAiTopTags = Object.entries(scores)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
@@ -2671,26 +2672,82 @@ async function updateLearningStats(suggestedTags, confirmedTags, action) {
   await saveLearningStats(stats);
 }
 
-async function autoTagBookmarks(bookmarks, concurrency = 10) {
+async function autoTagBookmarks(bookmarks, concurrency = 10, options = {}) {
+  console.log('[autoTagBookmarks] start, count:', bookmarks.length, 'options:', options);
   const results = new Array(bookmarks.length);
+  let enqueuedCount = 0;
+  let processedCount = 0;
   let nextIndex = 0;
   const runners = Array.from({ length: Math.min(concurrency, bookmarks.length) }, async () => {
     while (true) {
       const i = nextIndex++;
       if (i >= bookmarks.length) return;
       const bookmark = bookmarks[i];
-      const tags = await autoTagBookmark(bookmark);
-      results[i] = {
-        ...bookmark,
-        tags: tags.map(t => t.tag),
-        tagsAuto: tags.map(t => t.tag)
-      };
-      // 仅更新通用文档频率；批量场景的自动标签不直接写入贝叶斯语料，避免未验证标签污染模型
-      const text = `${cleanTitle(bookmark.title || '')} ${bookmark.url || ''}`;
-      await updateDocFrequency(text, bookmark.url);
+      // try/catch 包裹单个书签处理，避免单点异常导致整个批量流程中断
+      try {
+        const tags = await autoTagBookmark(bookmark, options);
+        results[i] = {
+          ...bookmark,
+          tags: tags.map(t => t.tag),
+          tagsAuto: tags.map(t => t.tag)
+        };
+        // 仅更新通用文档频率；批量场景的自动标签不直接写入贝叶斯语料，避免未验证标签污染模型
+        const text = `${cleanTitle(bookmark.title || '')} ${bookmark.url || ''}`;
+        await updateDocFrequency(text, bookmark.url);
+        // 立即入队（不等批量结束），避免大批量场景 service worker 超时终止导致入队逻辑不执行
+        if (typeof needsHumanReview === 'function' && typeof addToReviewQueue === 'function') {
+          const review = needsHumanReview(tags, bookmark);
+          if (review.need) {
+            try {
+              await addToReviewQueue({
+                id: bookmark.id || `batch_${Date.now()}_${i}`,
+                url: bookmark.url,
+                title: bookmark.title || bookmark.url,
+                domain: bookmark.domain || '',
+                suggestedTags: tags.map(t => t.tag),
+                confidence: tags[0]?.confidence || 0,
+                score: tags[0]?.score || 0,
+                reason: review.reason,
+                excerpt: '',
+                createdAt: Date.now()
+              });
+              enqueuedCount++;
+            } catch { /* 静默失败 */ }
+          }
+        }
+      } catch (e) {
+        results[i] = { ...bookmark, tags: [], tagsAuto: [] };
+        // 异常书签也立即入队
+        if (typeof needsHumanReview === 'function' && typeof addToReviewQueue === 'function') {
+          const review = needsHumanReview([], bookmark);
+          if (review.need) {
+            try {
+              await addToReviewQueue({
+                id: bookmark.id || `batch_${Date.now()}_${i}`,
+                url: bookmark.url,
+                title: bookmark.title || bookmark.url,
+                domain: bookmark.domain || '',
+                suggestedTags: [],
+                confidence: 0,
+                score: 0,
+                reason: review.reason,
+                excerpt: '',
+                createdAt: Date.now()
+              });
+              enqueuedCount++;
+            } catch { /* 静默失败 */ }
+          }
+        }
+      }
+      processedCount++;
+      // 每 500 个打一次进度日志
+      if (processedCount % 500 === 0) {
+        console.log('[autoTagBookmarks] progress:', processedCount + '/' + bookmarks.length, 'enqueued:', enqueuedCount);
+      }
     }
   });
-  await Promise.all(runners);
+  await Promise.allSettled(runners);
+  console.log('[autoTagBookmarks] done, processed:', processedCount, 'enqueued:', enqueuedCount);
   return results;
 }
 

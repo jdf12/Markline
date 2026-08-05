@@ -147,33 +147,42 @@ function formatRelativeTime(timestamp) {
   return i18n('dateWithYear', [monthLabel, String(day), String(year)]) + ` ${hours24}:${mins}:${secs}`;
 }
 
-// 日期分组标题
+// 日期分组标题（带缓存，避免8万次 new Date()）
+const _dateGroupLabelCache = new Map();
 function getDateGroupLabel(timestamp) {
+  const dayKey = Math.floor(timestamp / 86400000);
+  if (_dateGroupLabelCache.has(dayKey)) return _dateGroupLabelCache.get(dayKey);
+
   const now = new Date();
   const date = new Date(timestamp);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.floor((today - target) / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return i18n('today');
-  if (diffDays === 1) return i18n('yesterday');
-  if (diffDays < 7) return i18n('daysAgo', [String(diffDays)]);
-
-  const year = date.getFullYear();
-  const monthLabel = i18n('month' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][date.getMonth()]);
-  const day = date.getDate();
-
-  if (year === now.getFullYear()) {
-    return i18n('dateSameYear', [monthLabel, String(day)]);
+  let label;
+  if (diffDays === 0) label = i18n('today');
+  else if (diffDays === 1) label = i18n('yesterday');
+  else if (diffDays < 7) label = i18n('daysAgo', [String(diffDays)]);
+  else {
+    const year = date.getFullYear();
+    const monthLabel = i18n('month' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][date.getMonth()]);
+    const day = date.getDate();
+    if (year === now.getFullYear()) label = i18n('dateSameYear', [monthLabel, String(day)]);
+    else label = i18n('dateWithYear', [monthLabel, String(day), String(year)]);
   }
-  return i18n('dateWithYear', [monthLabel, String(day), String(year)]);
+  _dateGroupLabelCache.set(dayKey, label);
+  return label;
 }
 
 function escapeHtml(str) {
   if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // 纯字符串替换，避免每次创建临时 DOM 节点（万级渲染时减少 GC 压力）
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ===== 热力颜色系统（暖橙渐变） =====
@@ -294,10 +303,16 @@ function smartSearch(query, list) {
 
   const results = [];
   for (const item of list) {
+    // domain 实时从 URL 推导（精简版数据不含 domain 字段）
+    let domainText = '';
+    if (item.domain) domainText = item.domain;
+    else if (item.url) {
+      try { domainText = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
+    }
     const fields = [
       { text: item.title || '', weight: 100, key: 'title' },
       { text: item.url || '', weight: 40, key: 'url' },
-      { text: item.domain || '', weight: 30, key: 'domain' },
+      { text: domainText, weight: 30, key: 'domain' },
       { text: item.folderPath || item.folderName || '', weight: 20, key: 'folder' },
       { text: (item.tags || []).join(' '), weight: 60, key: 'tags' }
     ];
@@ -347,32 +362,62 @@ function computeDuplicates(list) {
   return dupIds;
 }
 
-// 刷新书签数据：先刷新历史点击次数，再拉 storage → 重建 allTags → 渲染标签栏与时间线
+// 刷新书签数据：拉 storage → 重建 allTags → 渲染标签栏与时间线
 async function refreshBookmarkData({ keepFilter = true } = {}) {
-  // 从 Chrome 历史记录同步最新的点击次数
-  await chrome.runtime.sendMessage({ action: 'refreshClickCounts' }).catch(() => {});
-  const res = await chrome.runtime.sendMessage({ action: 'getBookmarks' });
+  // 使用精简版接口，减少 sendMessage 结构化克隆开销
+  const res = await chrome.runtime.sendMessage({ action: 'getBookmarksLite' });
   if (res && res.success) {
     allBookmarks = res.bookmarks || res.data || [];
-    await collectAllTags();
-    renderTagBar();
+
+    // 首屏优先：立即渲染书签列表
     if (keepFilter) {
       filterBookmarks(searchInput.value);
     }
+
+    // 延后执行：标签聚合 + 标签栏渲染（避免阻塞首屏）
+    const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 50));
+    scheduleIdle(async () => {
+      await collectAllTags();
+      renderTagBar();
+    });
   }
 }
 async function collectAllTags() {
   allTags.clear();
+  // 第一遍：同步收集所有标签及其计数（避免逐标签 await storage）
+  const tagCounts = new Map();
   for (const item of allBookmarks) {
     if (item.tags && item.tags.length > 0) {
       for (const tag of item.tags) {
-        if (!allTags.has(tag)) {
-          const color = await getTagColor(tag);
-          allTags.set(tag, { count: 0, color });
-        }
-        allTags.get(tag).count++;
+        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
       }
     }
+  }
+  if (tagCounts.size === 0) return;
+
+  // 批量读取标签颜色（一次 storage 调用，而非每个标签一次）
+  let colors = {};
+  try {
+    const result = await chrome.storage.local.get('tag_colors');
+    colors = result['tag_colors'] || {};
+  } catch {}
+
+  // 为缺失的标签生成颜色
+  let hasNewColors = false;
+  for (const tag of tagCounts.keys()) {
+    if (!colors[tag]) {
+      let hash = 0;
+      for (let i = 0; i < tag.length; i++) hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+      const hue = Math.abs(hash) % 360;
+      colors[tag] = `hsl(${hue}, 65%, 50%)`;
+      hasNewColors = true;
+    }
+    allTags.set(tag, { count: tagCounts.get(tag), color: colors[tag] });
+  }
+
+  // 批量保存新颜色（一次 storage 调用）
+  if (hasNewColors) {
+    try { await chrome.storage.local.set({ tag_colors: colors }); } catch {}
   }
 }
 
@@ -1840,22 +1885,29 @@ async function loadBookmarks() {
   searchEmpty.style.display = 'none';
 
   try {
-    const result = await chrome.runtime.sendMessage({ action: 'getBookmarks' });
+    // 使用精简版接口，减少 sendMessage 结构化克隆开销
+    const result = await chrome.runtime.sendMessage({ action: 'getBookmarksLite' });
     if (result && result.success) {
       allBookmarks = (result.bookmarks || []).map(b => ({
         ...b,
         pinned: !!b.pinned
       }));
-      duplicateIds = computeDuplicates(allBookmarks);
-      await collectAllTags();
-      renderTagBar();
-      // 防御性：包一层 try/catch，避免 createBookmarkElement 等内部异常导致 renderQueue 为空
+
+      // 首屏优先：立即渲染书签列表（不等待重复检测和标签聚合）
       try {
         filterBookmarks(searchInput.value);
       } catch (innerErr) {
         console.error('filterBookmarks 失败，回退到 renderTimeline:', innerErr);
         renderTimeline(allBookmarks);
       }
+
+      // 延后执行：重复检测 + 标签聚合 + 标签栏渲染（避免阻塞首屏）
+      const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 50));
+      scheduleIdle(async () => {
+        duplicateIds = computeDuplicates(allBookmarks);
+        await collectAllTags();
+        renderTagBar();
+      });
     } else {
       showToast(i18n('loadFailed'), 'error');
     }
@@ -1878,7 +1930,8 @@ async function handleSync() {
         ? i18n('syncSuccessNew', [String(result.added)])
         : i18n('syncSuccessTotal', [String(result.total)]);
       showToast(msg, 'success');
-      const bookmarksResult = await chrome.runtime.sendMessage({ action: 'getBookmarks' });
+      // 使用精简版接口，减少 sendMessage 结构化克隆开销
+      const bookmarksResult = await chrome.runtime.sendMessage({ action: 'getBookmarksLite' });
       if (bookmarksResult?.success) {
         allBookmarks = (bookmarksResult.bookmarks || []).map(b => ({ ...b, pinned: !!b.pinned }));
         duplicateIds = computeDuplicates(allBookmarks);
@@ -2690,9 +2743,13 @@ function buildKeywordCandidates() {
     if (b.tags && b.tags.length) {
       b.tags.forEach(t => add(t, 'tag', 80));
     }
-    // 域名
-    if (b.domain) {
-      add(b.domain.replace(/^www\./, ''), 'domain', 40);
+    // 域名（精简版数据不含 domain，实时从 URL 推导）
+    let domainVal = b.domain;
+    if (!domainVal && b.url) {
+      try { domainVal = new URL(b.url).hostname; } catch {}
+    }
+    if (domainVal) {
+      add(domainVal.replace(/^www\./, ''), 'domain', 40);
     }
     // 标题分词（按空格、中文标点切分）
     if (b.title) {

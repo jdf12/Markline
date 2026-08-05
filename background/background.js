@@ -27,6 +27,8 @@ importScripts('translate-channel.js');
 importScripts('../shared/ai-platforms.js');
 importScripts('../shared/ai-nav-store.js');
 importScripts('ai-nav-channel.js');
+// 引入书签快照模块（在导入/同步/删除/恢复前后自动创建快照，支持一键恢复）
+importScripts('../shared/snapshot.js');
 
 // ===== 正文内容提取 =====
 async function extractActiveTabContent(tabId, url) {
@@ -250,6 +252,12 @@ async function syncAllBookmarks() {
     const tree = await chrome.bookmarks.getTree();
     const allBookmarks = await collectAllBookmarks(tree);
     const existing = await getStoredBookmarks();
+    // 同步覆盖前创建快照（仅当本地已有数据时，避免冷启动空快照）
+    // 受快照策略开关控制
+    const _syncSettings = await getAppSettings();
+    if (typeof createSnapshot === 'function' && existing.length > 0 && _syncSettings.snapshotPreActionEnabled !== false) {
+      try { await createSnapshot('pre_sync', '同步书签前'); } catch (e) { /* 快照失败不阻塞同步 */ }
+    }
 
     // 索引已有项，保留 pinned / 手动标签
     const existingByKey = new Map();
@@ -312,8 +320,7 @@ async function syncAllBookmarks() {
       taggedCount++;
     });
 
-    // 从 Chrome 历史记录获取真实点击次数
-    await enrichClickCounts(merged, 10);
+    // 点击次数由 refreshClickCounts 按需触发，不阻塞同步流程
 
     // 排序：置顶在前，再按时间倒序
     merged.sort((a, b) => {
@@ -700,11 +707,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'getBookmarks':
       (async () => {
-        let bookmarks = await getStoredBookmarks();
-        // 尝试从历史记录刷新点击次数（不阻塞返回）
-        enrichClickCounts(bookmarks, 5).then(updated => {
-          if (updated.length > 0) setStoredBookmarks(bookmarks);
-        }).catch(() => {});
+        // 直接返回存储数据，不触发 enrichClickCounts（避免8万次 history API 请求）
+        const bookmarks = await getStoredBookmarks();
+        sendResponse({ success: true, bookmarks });
+      })();
+      return true;
+
+    case 'getBookmarksLite':
+      (async () => {
+        // 精简版：只返回首屏必需字段，减少 sendMessage 结构化克隆开销（8万条传输量减约40%）
+        const all = await getStoredBookmarks();
+        const bookmarks = new Array(all.length);
+        for (let i = 0; i < all.length; i++) {
+          const b = all[i];
+          bookmarks[i] = {
+            id: b.id,
+            title: b.title,
+            url: b.url,
+            dateAdded: b.dateAdded,
+            tags: b.tags,
+            pinned: !!b.pinned,
+            clickCount: b.clickCount || 0,
+            parentId: b.parentId || '',
+            folderPath: b.folderPath || ''
+          };
+        }
         sendResponse({ success: true, bookmarks });
       })();
       return true;
@@ -734,6 +761,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'clearAll':
       (async () => {
+        // 清空前创建快照，防止误删（受快照策略开关控制）
+        const _deleteSettings = await getAppSettings();
+        if (typeof createSnapshot === 'function' && _deleteSettings.snapshotPreActionEnabled !== false) {
+          try { await createSnapshot('pre_delete', '清空书签前'); } catch (e) { /* 快照失败不阻塞清空 */ }
+        }
         // 从 Chrome 书签中真正删除所有
         const bookmarks = await getStoredBookmarks();
         for (const b of bookmarks) {
@@ -897,30 +929,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: false, error: 'No bookmarks to import' });
           return;
         }
+        // 导入前创建快照，防止覆盖丢失（受快照策略开关控制）
+        const _importSettings = await getAppSettings();
+        if (typeof createSnapshot === 'function' && _importSettings.snapshotPreActionEnabled !== false) {
+          try { await createSnapshot('pre_import', '导入书签前'); } catch (e) { /* 快照失败不阻塞导入 */ }
+        }
         const existing = await getStoredBookmarks();
         const result = mode === 'merge'
           ? mergeBookmarks(existing, incoming)
           : { merged: incoming, added: incoming.length };
-        // 并发池打标签（仅更新通用文档频率，避免污染标签语料）
-        const needsTag = result.merged.filter(item => !item.tags || item.tags.length === 0);
-        let tagged = 0;
-        try {
-          const taggedResults = await autoTagBookmarks(needsTag, 10);
-          taggedResults.forEach((res, i) => {
-            const tags = res.tags || [];
-            needsTag[i].tags = tags;
-            needsTag[i].tagsAuto = tags;
-          });
-          tagged = needsTag.length;
-        } catch (e) {
-          // 批量打标签失败时保持空标签，不阻塞导入流程
-        }
         for (const item of result.merged) {
           if (typeof item.pinned !== 'boolean') item.pinned = false;
         }
         result.merged.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.dateAdded - a.dateAdded);
+        // 先保存书签数据，确保导入结果不丢失
         await setStoredBookmarks(result.merged);
-        sendResponse({ success: true, total: result.merged.length, added: result.added, tagged });
+        // 立即响应，后台异步打标签 + 入队
+        // 大批量场景 service worker 会被终止，但入队是即时的（每个书签处理完就入队），能入多少算多少
+        sendResponse({ success: true, total: result.merged.length, added: result.added, tagged: 0 });
+        const needsTag = result.merged.filter(item => !item.tags || item.tags.length === 0);
+        if (needsTag.length === 0) return;
+        // 分批处理，每批 200 个，避免单次 Promise 过载
+        const BATCH_SIZE = 200;
+        for (let start = 0; start < needsTag.length; start += BATCH_SIZE) {
+          const batch = needsTag.slice(start, start + BATCH_SIZE);
+          try {
+            const taggedResults = await autoTagBookmarks(batch, 10, { skipAI: true });
+            // 增量更新标签到存储
+            const tagMap = new Map();
+            taggedResults.forEach((res, i) => {
+              if (res && res.tags && res.tags.length > 0) tagMap.set(batch[i].id, res.tags);
+            });
+            if (tagMap.size > 0) {
+              const current = await getStoredBookmarks();
+              let updated = false;
+              for (const item of current) {
+                const tags = tagMap.get(item.id);
+                if (tags) {
+                  item.tags = tags;
+                  item.tagsAuto = tags;
+                  updated = true;
+                }
+              }
+              if (updated) await setStoredBookmarks(current);
+            }
+          } catch (e) {
+            // 批次失败不阻塞后续批次
+          }
+        }
       })();
       return true;
 
@@ -974,6 +1030,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })();
       return true;
 
+    case 'snapshotList':
+      (async () => {
+        try {
+          const snapshots = await listSnapshots();
+          const bytes = await getSnapshotStorageBytes();
+          sendResponse({ success: true, snapshots, bytes });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+
+    case 'snapshotCreate':
+      (async () => {
+        try {
+          const snap = await createSnapshot('manual', message.label || '');
+          sendResponse({ success: true, snapshot: {
+            id: snap.id, createdAt: snap.createdAt, reason: snap.reason,
+            label: snap.label, stats: snap.stats
+          } });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+
+    case 'snapshotRestore':
+      (async () => {
+        try {
+          const result = await restoreSnapshot(message.id);
+          sendResponse(result);
+          // 通知其他页面（popup/standalone）刷新书签数据
+          chrome.runtime.sendMessage({ action: 'bookmarksUpdated' }).catch(() => {});
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+
+    case 'snapshotDelete':
+      (async () => {
+        try {
+          const result = await deleteSnapshot(message.id);
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+
+    case 'snapshotClearAuto':
+      (async () => {
+        try {
+          const result = await clearAutoSnapshots();
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+
     case 'getAppSettings':
       (async () => {
         const settings = await getAppSettings();
@@ -984,22 +1101,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'updateAppSettings':
       (async () => {
         const { patch } = message;
-        if (patch && Object.prototype.hasOwnProperty.call(patch, 'tombstoneRetentionDays')) {
+        if (!patch) {
+          sendResponse({ success: false, error: 'No patch provided' });
+          return;
+        }
+
+        // 校验 tombstoneRetentionDays
+        if (Object.prototype.hasOwnProperty.call(patch, 'tombstoneRetentionDays')) {
           const days = Number(patch.tombstoneRetentionDays);
           if (!TOMBSTONE_RETENTION_OPTIONS.includes(days)) {
             sendResponse({ success: false, error: 'Invalid retention days' });
             return;
           }
-          await setAppSettings({ tombstoneRetentionDays: days });
-          // 立即裁剪过期 tombstone
+        }
+
+        // 统一保存所有字段
+        await setAppSettings(patch);
+
+        // 副作用1：裁剪过期 tombstone
+        if (Object.prototype.hasOwnProperty.call(patch, 'tombstoneRetentionDays')) {
           const tombstones = await getTombstones();
-          const pruned = await pruneTombstones(tombstones, days);
+          const pruned = await pruneTombstones(tombstones, patch.tombstoneRetentionDays);
           if (pruned.length !== tombstones.length) {
             await setTombstones(pruned);
           }
-        } else {
-          await setAppSettings(patch || {});
         }
+
+        // 副作用2：快照频率变更 → 重建闹钟
+        if (Object.prototype.hasOwnProperty.call(patch, 'snapshotAutoFrequency') ||
+            Object.prototype.hasOwnProperty.call(patch, 'snapshotAutoEnabled')) {
+          const currentSettings = await getAppSettings();
+          // 频率 off 或开关关闭 → 清除闹钟；否则按频率重建
+          const freq = currentSettings.snapshotAutoFrequency || 'daily';
+          const autoEnabled = currentSettings.snapshotAutoEnabled !== false;
+          const periodMap = { daily: 1440, every3days: 4320, weekly: 10080, off: 0 };
+          const period = periodMap[freq] || 1440;
+          await chrome.alarms.clear(SNAPSHOT_ALARM_NAME);
+          if (autoEnabled && period > 0) {
+            chrome.alarms.create(SNAPSHOT_ALARM_NAME, { periodInMinutes: period, delayInMinutes: 60 });
+          }
+        }
+
         sendResponse({ success: true });
       })();
       return true;
@@ -2133,6 +2275,7 @@ chrome.bookmarks.onRemoved.addListener((id, removeInfo) => {
 
 // ===== 定时检测失效书签 =====
 const CHECKER_ALARM_PREFIX = 'bookmark_checker_';
+const SNAPSHOT_ALARM_NAME = 'daily_snapshot';
 
 // ===== 失效检测 - 后台绕过 CORS =====
 //
@@ -2417,6 +2560,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     return;
   }
 
+  // 每日自动快照（受快照策略开关控制）
+  if (alarm.name === SNAPSHOT_ALARM_NAME) {
+    const _snapSettings = await getAppSettings();
+    if (_snapSettings.snapshotAutoEnabled === false) return;
+    if (typeof createSnapshot === 'function') {
+      try { await createSnapshot('auto', '自动快照'); } catch (e) { /* 静默失败 */ }
+    }
+    return;
+  }
+
   if (!alarm.name.startsWith(CHECKER_ALARM_PREFIX)) return;
 
   const settings = await getCheckSettings();
@@ -2493,14 +2646,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     chrome.notifications?.create({
       type: 'basic',
-      iconUrl: '../icons/icon48.png',
+      iconUrl: 'icons/icon48.png',
       title: 'Markline',
       message: `已自动删除 ${summary.autoDeleted} 个失效书签`
     });
   } else if (summary.broken > 0) {
     chrome.notifications?.create({
       type: 'basic',
-      iconUrl: '../icons/icon48.png',
+      iconUrl: 'icons/icon48.png',
       title: 'Markline',
       message: `检测到 ${summary.broken} 个失效书签，点击查看详情`
     });
@@ -2531,6 +2684,8 @@ chrome.runtime.onInstalled.addListener(() => {
 
   syncAllBookmarks();
   scheduleCheckerAlarm();
+  // 调度每日自动快照（周期 24 小时）
+  chrome.alarms.create(SNAPSHOT_ALARM_NAME, { periodInMinutes: 24 * 60, delayInMinutes: 60 });
   // 预加载智能标签缓存（使 autoTagBookmarkSync 可同步运行）
   if (typeof preloadSmartTaggerCaches === 'function') {
     preloadSmartTaggerCaches();
@@ -2571,7 +2726,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (!discovered || discovered.length === 0) {
         chrome.notifications?.create({
           type: 'basic',
-          iconUrl: '../icons/icon48.png',
+          iconUrl: 'icons/icon48.png',
           title: 'Markline',
           message: '未发现可订阅的 RSS 源'
         });
@@ -2582,7 +2737,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (existing) {
         chrome.notifications?.create({
           type: 'basic',
-          iconUrl: '../icons/icon48.png',
+          iconUrl: 'icons/icon48.png',
           title: 'Markline',
           message: '已订阅过该源'
         });
@@ -2592,7 +2747,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (!init.success) {
         chrome.notifications?.create({
           type: 'basic',
-          iconUrl: '../icons/icon48.png',
+          iconUrl: 'icons/icon48.png',
           title: 'Markline',
           message: '订阅失败: ' + init.error
         });
@@ -2615,7 +2770,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       FeedNotifier.updateBadge();
       chrome.notifications?.create({
         type: 'basic',
-        iconUrl: '../icons/icon48.png',
+        iconUrl: 'icons/icon48.png',
         title: 'Markline',
         message: `订阅成功: ${init.title || feedUrl}（${init.itemCount || 0} 篇）`
       });
@@ -2640,7 +2795,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (existing.length === 0) {
         chrome.notifications?.create({
           type: 'basic',
-          iconUrl: '../icons/icon48.png',
+          iconUrl: 'icons/icon48.png',
           title: 'Markline',
           message: '该页面未在书签中'
         });
@@ -2666,7 +2821,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       // 显示成功通知
       chrome.notifications?.create({
         type: 'basic',
-        iconUrl: '../icons/icon48.png',
+        iconUrl: 'icons/icon48.png',
         title: 'Markline',
         message: `已移除: ${tab.title || tab.url}`
       });
@@ -2696,6 +2851,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.runtime.onStartup.addListener(() => {
   syncAllBookmarks();
   scheduleCheckerAlarm();
+  // 恢复每日自动快照调度（若未存在则创建）
+  chrome.alarms.get(SNAPSHOT_ALARM_NAME).then((existing) => {
+    if (!existing) {
+      chrome.alarms.create(SNAPSHOT_ALARM_NAME, { periodInMinutes: 24 * 60, delayInMinutes: 60 });
+    }
+  });
   // 预加载智能标签缓存（使 autoTagBookmarkSync 可同步运行）
   if (typeof preloadSmartTaggerCaches === 'function') {
     preloadSmartTaggerCaches();
@@ -2749,7 +2910,7 @@ async function handleQuickBookmark(activeTab) {
       if (notificationEnabled) {
         chrome.notifications?.create({
           type: 'basic',
-          iconUrl: '../icons/icon48.png',
+          iconUrl: 'icons/icon48.png',
           title: 'Markline',
           message: '该页面已在书签中'
         });
