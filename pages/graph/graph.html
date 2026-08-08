@@ -55,6 +55,13 @@
         <input type="text" id="searchInput" class="search-input" placeholder="Search nodes..." data-i18n-placeholder="graphSearchPlaceholder">
         <span id="searchCount" class="search-count" style="display:none;"></span>
       </div>
+      <!-- 模式切换:2D 粒子 / 3D 星系 -->
+      <div class="toolbar-group">
+        <div class="mode-switch" id="modeSwitch">
+          <button class="mode-btn active" data-mode="2d" data-i18n-title="graphMode2D">2D</button>
+          <button class="mode-btn" data-mode="3d" data-i18n-title="graphMode3D">3D</button>
+        </div>
+      </div>
       <div class="toolbar-group toolbar-group--right">
         <button id="resetViewBtn" class="toolbar-btn" data-i18n-title="graphResetView">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -107,6 +114,16 @@
         <div class="loading-dots">
           <span></span><span></span><span></span>
         </div>
+        <div class="loading-text" id="graphLoadingText"></div>
+      </div>
+
+      <!-- 大图聚类模式提示徽章 -->
+      <div id="clusterModeBadge" class="cluster-mode-badge" style="display:none;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <circle cx="12" cy="12" r="9"/>
+        </svg>
+        <span id="clusterModeText"></span>
       </div>
 
       <!-- 悬浮信息卡 -->
@@ -155,9 +172,14 @@
     </div>
   </div>
 
-  <script src="../../shared/i18n.js"></script>
-  <script src="../../shared/smart-tagger.js"></script>
-  <script src="../../background/vendor/cytoscape.min.js"></script>
-  <script src="graph.js"></script>
+
+  <script src="../../shared/i18n.js?v=3"></script>
+  <script src="../../shared/smart-tagger.js?v=3"></script>
+  <script src="../../background/vendor/cytoscape.min.js?v=3"></script>
+  <script src="graph-core.js?v=3"></script>
+  <script src="graph-layout.js?v=19"></script>
+  <script src="graph-2d.js?v=19"></script>
+  <script src="graph-3d.js?v=14"></script>
+  <script src="graph.js?v=3"></script>
 </body>
 </html>
